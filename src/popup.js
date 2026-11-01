@@ -83,8 +83,15 @@ function showPreview(res) {
     : text;
   ta.scrollTop = 0;
 
+  const warn = res.diagnostics && !res.diagnostics.complete ? res.diagnostics : null;
   $('stats').textContent =
-    `${res.kind.toUpperCase()} · ${res.chars.toLocaleString()} chars · ~${res.tokens.toLocaleString()} tokens · ${res.blocks} blocks`;
+    `${res.kind.toUpperCase()} · ${res.chars.toLocaleString()} chars · ~${res.tokens.toLocaleString()} tokens · ${res.blocks} blocks` +
+    (warn ? ` · ⚠ ${warn.warnings.length}` : '');
+  $('stats').title = warn ? warn.warnings.join('\n') : '';
+  $('stats').classList.toggle('warn', !!warn);
+  if (warn) {
+    setStatus(`⚠ possible incomplete extraction — ${warn.warnings[0]}`, true);
+  }
   const note = $('scope-note');
   if (res.meta && res.meta.scope) {
     note.classList.remove('hidden');

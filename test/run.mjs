@@ -113,7 +113,8 @@ check('hidden capture can be switched off', !(await page.evaluate(() => {
   const d = PageCapture.capture({ scope: 'content', includeHidden: 'off' });
   return PageCapture.toMarkdown(d);
 })).includes('MUST NOT APPEAR (display'));
-check('aria-hidden excluded', !/MUST NOT APPEAR \(aria/.test(content.md));
+check('aria-hidden captured when it is the only copy', /\[hidden: aria-hidden\][\s\S]{0,120}MUST NOT APPEAR \(aria/.test(content.md),
+      (content.md.match(/.{0,50}aria-hidden.{0,80}/) || [''])[0]);
 check('script excluded', !/MUST NOT APPEAR \(script/.test(content.md));
 check('nav/footer dropped in content mode', !content.md.includes('Footer junk') && !content.md.includes('Sidebar junk'));
 check('cookie banner dropped', !content.md.includes('We use cookies'));
@@ -222,6 +223,54 @@ check('table: closed <details> table intact', tbl.md.includes('| E-1 | 10 |') &&
 const offTbl = await page.evaluate(() => PageCapture.toMarkdown(
   PageCapture.capture({ scope: 'content', includeHidden: 'off' }), { profile: 'llm' }));
 check('table: includeHidden=off still excludes hidden rows', !offTbl.includes('D. Park') && !offTbl.includes('Escalated to legal'));
+
+// --------------------------------------------- completeness (bug report 1-5)
+/* "Returns a plausible-looking but incomplete result with no indication
+ * anything was missing." These checks pin every claim in the report. */
+const incUrl = pathToFileURL(resolve(HERE, 'fixtures/incomplete.html')).href;
+await load(incUrl);
+const inc = await run('content');
+writeFileSync(resolve(OUT, 'incomplete.md'), inc.md);
+writeFileSync(resolve(OUT, 'incomplete.json'), JSON.stringify(inc.json, null, 2));
+console.log('\ncompleteness fixture:\n' + inc.md.slice(0, 900));
+
+const rowsFound = (inc.md.match(/^\| SKU-\d{3} \|/gm) || []).length;
+const listFound = (inc.md.match(/^\d+\. Entry \d+ of 25$/gm) || []).length;
+check('no row cap: all 60 table rows captured', rowsFound === 60, `${rowsFound} rows`);
+check('no item cap: all 25 list items captured', listFound === 25, `${listFound} items`);
+check('title= tooltip captured', inc.md.includes('[title: Approved by M. Chen on 2026-10-30]'));
+check('data-tooltip captured', inc.md.includes('[title: Refund window: 30 days from delivery]'));
+check('aria-label on an icon-only element captured', inc.md.includes('[title: Capacity 48 of 50 GB used]'));
+check('list item with styled span read', inc.md.includes('- Visible item, styled span'));
+check('list item wrapped in a div read', inc.md.includes('- Item wrapped in a div'));
+check('list item that is only a link read', /- \[Item that is only a link\]/.test(inc.md));
+check('list item hidden with visibility read', inc.md.includes('- Item hidden with visibility'));
+check('collapsed accordion keeps heading, prose and table', /\[hidden: display:none\] shipping-details[\s\S]{0,300}1Z999AA10123456784[\s\S]{0,400}\| Delivered \| 2026-10-31 \|/.test(inc.md));
+check('hidden last row still read', inc.md.includes('| Sticker pack | 2 |'));
+
+const diag = inc.json.diagnostics;
+check('diagnostics attached to every capture', diag && typeof diag.complete === 'boolean' && Array.isArray(diag.warnings), JSON.stringify(diag && diag.warnings));
+check('diagnostics reports zero mismatch on a complete page', diag.complete === true && diag.warnings.length === 0, JSON.stringify(diag.warnings));
+check('row/item counters match the DOM', diag.stats.tableRows === diag.stats.tableRowsCaptured && diag.stats.listItems === diag.stats.listItemsCaptured,
+  JSON.stringify(diag.stats));
+check('tooltip counter matches what was emitted', diag.stats.tooltipValues === 3, String(diag.stats.tooltipValues));
+
+// a real mismatch must be announced, not swallowed
+const offInc = await page.evaluate(() => {
+  const d = PageCapture.capture({ scope: 'content', includeHidden: 'off' });
+  return { md: PageCapture.toMarkdown(d, { profile: 'llm' }), diag: d.diagnostics };
+});
+check('warning block rendered when content is skipped', offInc.md.includes('> [!WARNING]') &&
+  offInc.md.includes('Possible incomplete extraction'), offInc.md.slice(0, 260));
+check('warning names the cause', /hidden and skipped/.test(offInc.md));
+
+// the renderer must show warnings coming from any source, not just that one
+const synthetic = await page.evaluate(() => PageCapture.toMarkdown({
+  meta: { url: 'https://x', title: 't', capturedAt: 'now' },
+  blocks: [{ type: 'para', inline: [{ t: 'text', v: 'body' }] }],
+  diagnostics: { complete: false, warnings: ['3 of 14 row(s) missing from a table "SKU | Qty"'], stats: {} },
+}, { profile: 'lean' }));
+check('synthetic table warning is rendered', synthetic.includes('3 of 14 row(s) missing from a table "SKU | Qty"'), synthetic.slice(0, 200));
 
 // ---------------------------------------------------------------- selection
 await page.goto(fixture);

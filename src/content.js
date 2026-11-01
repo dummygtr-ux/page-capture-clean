@@ -70,6 +70,7 @@
       ...out,
       html: out.kind === 'html' ? out.text : undefined,
       meta: doc.meta,
+      diagnostics: doc.diagnostics ? doc.diagnostics : null,
       chars: out.text.length,
       tokens: Math.round(out.text.length / 3.8),
       blocks: doc.blocks.length,
@@ -162,7 +163,10 @@
     if (msg.type === 'copy') {
       const r = runCapture(opts);
       await copyToClipboard({ text: r.text, html: r.html });
-      toast(`Copied ${r.kind.toUpperCase()} · ${r.chars.toLocaleString()} chars (~${r.tokens.toLocaleString()} tokens)`);
+      const warn = r.diagnostics && !r.diagnostics.complete
+        ? ` ⚠ ${r.diagnostics.warnings.length} warning${r.diagnostics.warnings.length === 1 ? '' : 's'}`
+        : '';
+      toast(`Copied ${r.kind.toUpperCase()} · ${r.chars.toLocaleString()} chars (~${r.tokens.toLocaleString()} tokens)${warn}`);
       return { ok: true, chars: r.chars, kind: r.kind };
     }
 

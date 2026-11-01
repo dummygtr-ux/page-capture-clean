@@ -41,6 +41,7 @@ header {
 header strong { font-size: 12px; letter-spacing: .01em; }
 #page-domain { font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .muted { color: var(--muted); font-variant-numeric: tabular-nums; }
+.muted.warn { color: #b45309; font-weight: 600; }
 
 /* ---- the menu itself ---- */
 .menu {

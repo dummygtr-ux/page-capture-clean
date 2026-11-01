@@ -14,7 +14,8 @@ const page = await browser.newPage({ viewport: { width: 340, height: 260 }, devi
 
 await page.addInitScript(({ md }) => {
   const meta = { scope: 'main', selector: 'div.content', url: 'https://tickets.internal.acme.example/TCK-1042', title: 'TCK-1042 — Access request' };
-  const payload = { ok: true, kind: 'md', text: md, meta, chars: md.length, tokens: Math.round(md.length / 3.8), blocks: 23, mime: 'text/markdown' };
+  const diagnostics = { complete: false, warnings: ['2 of 61 row(s) missing from a table "SKU | Qty"'], stats: {} };
+  const payload = { ok: true, kind: 'md', text: md, meta, chars: md.length, tokens: Math.round(md.length / 3.8), blocks: 23, mime: 'text/markdown', diagnostics };
   window.__created = [];
   window.chrome = {
     tabs: {
@@ -66,6 +67,7 @@ const expanded = await page.evaluate(() => ({
   hidden: document.getElementById('more').classList.contains('hidden'),
   stats: document.getElementById('stats').textContent,
   note: document.getElementById('scope-note').textContent,
+  statusText: document.getElementById('status').textContent,
   chars: document.getElementById('preview').value.length,
 }));
 console.log(expanded);
@@ -91,6 +93,8 @@ if (!menu.moreHidden) problems.push('preview disclosure should start collapsed')
 if (menu.popupHeight > 220) problems.push(`menu should stay compact, height=${Math.round(menu.popupHeight)}`);
 if (expanded.hidden || expanded.chars < 100) problems.push('preview did not load when expanded');
 if (!/tokens/.test(expanded.stats)) problems.push('stats missing');
+if (!/⚠ 1/.test(expanded.stats)) problems.push('warning count missing from stats: ' + expanded.stats);
+if (!/incomplete extraction/i.test(expanded.statusText || '')) problems.push('warning status line missing: ' + expanded.statusText);
 if (!created.some((u) => /extensions\/shortcuts/.test(u))) problems.push('shortcut row did not open the shortcut settings');
 
 if (problems.length) {

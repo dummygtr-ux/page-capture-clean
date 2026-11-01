@@ -111,7 +111,7 @@ Click the pinned icon and you get a small menu — the same gesture as any other
 - Picks the **main content** by scoring candidates (text length, punctuation, paragraph count,
   link density, class/id hints) instead of guessing "the first `<main>`"; falls back to the
   whole page when nothing scores high enough. Scope is shown in the popup.
-- **Table rows are never dropped for being invisible.** A row hidden by `display:none`,
+- **Nothing is dropped for being invisible, and nothing is dropped silently.** A row hidden by `display:none`,
   `visibility`, `hidden`, `aria-hidden`, or by sitting inside a collapsed panel, an
   accordion or a closed `<details>` is still a row — it is read and included, and the JSON
   records which rows came from hidden areas as `hiddenRows`. Only `includeHidden: off`
@@ -202,6 +202,47 @@ hidden region with reason + label + CSS path, which structures were inferred, an
 "Suspects" section that flags long unstructured divs, single-column tables,
 `user-select:none` elements (the reason Ctrl+A/C misses text), iframes, canvases and
 shadow roots. That report is the input needed to add a rule for a site I cannot see.
+
+## Never silently incomplete
+
+The worst failure is not a crash — it is a confident, plausible, half-complete capture. So every
+capture carries `diagnostics`, and when something does not add up **the output says so at the top**:
+
+```markdown
+# Order #4417
+
+Source: https://…
+
+> [!WARNING]
+> Possible incomplete extraction:
+> - 2 of 61 row(s) missing from a table "SKU | Qty"
+> - 1 row(s)/item(s) were hidden and skipped because Hidden content = Ignore
+```
+
+What is compared, per capture: table rows in the DOM against rows emitted (and the same for list
+items), hidden regions captured vs skipped, tooltip values picked up, items with no readable text,
+and overall text coverage of the scope. The counts are in `diagnostics.stats` in JSON, the popup
+shows a `⚠ n` badge (hover for the list), the toast on the page appends `⚠ 1 warning`, and the
+structure report has a **Completeness check** section.
+
+There is **no row, item or length cap** anywhere in the traversal. A 60-row table is 60 rows;
+the only bound is a 2000-region guard on hidden blocks, and hitting it raises a warning.
+
+## What is captured, by construction
+
+| Situation | Behaviour |
+| --- | --- |
+| `display:none` / `visibility:hidden` / `opacity:0` / `content-visibility` / off-canvas / closed `<details>` | captured, wrapped in `[hidden: <reason>] label` |
+| `aria-hidden` / `hidden` attribute | captured **only if that text exists nowhere else** (shingle comparison against the rest of the scope), since these are usually decorative duplicates |
+| a row or list item that is itself hidden | read through, no marker — it is data |
+| text inside a visible cell/item that lives in a hidden wrapper | read |
+| **tooltip-only text** (`title`, `data-tooltip`, `data-original-title`, `data-tip`, `aria-description`, `aria-label` on an icon) | captured inline as `[title: …]` — deliberately in scope, not a limitation |
+| identical paragraphs | collapsed in the lean profile |
+| a `<tr>`/`<li>` whose DOM text is non-empty but produced no blocks | last-resort inline read, then `emptyItems` counter + warning |
+
+Remaining honest limits: rows that only exist in the DOM **after** you expand something (rendered on
+demand) cannot be captured without opening them; so can virtualised lists; iframes, canvas and
+shadow DOM are not walked (the report counts them so you can see if that is your case).
 
 ## Output shape
 

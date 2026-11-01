@@ -158,6 +158,32 @@ const defaulted = await sw.evaluate(async ({ t }) => {
 check('default format is lean (no URL noise)', defaulted.includes('| Approver | Decision | Date |') &&
   !defaulted.includes('/img/open.png') && !/utm_source/.test(defaulted), defaulted.slice(0, 160));
 
+// --------------------------------------------- completeness warning in the UI
+const page4 = await ctx.newPage();
+await page4.goto(`http://127.0.0.1:${PORT}/fixtures/incomplete.html`, { waitUntil: 'load' });
+await page4.bringToFront();
+await page4.waitForTimeout(500);
+const tab4 = await activeTabId(sw);
+const warnRes = await sw.evaluate(async ({ t }) => {
+  const clean = await chrome.tabs.sendMessage(t, { type: 'capture', opts: { format: 'md-llm', scope: 'content', includeHidden: 'mark' } });
+  const skipping = await chrome.tabs.sendMessage(t, { type: 'copy', opts: { format: 'md-llm', scope: 'content', includeHidden: 'off' } });
+  return {
+    cleanWarnings: clean.diagnostics ? clean.diagnostics.warnings.length : -1,
+    enabled: !!clean.diagnostics,
+    skippingOk: skipping.ok,
+  };
+}, { t: tab4 });
+check('capture response carries diagnostics', warnRes.enabled, JSON.stringify(warnRes));
+check('complete page reports no warnings', warnRes.cleanWarnings === 0, String(warnRes.cleanWarnings));
+check('copy with skipped content still succeeds', warnRes.skippingOk === true);
+
+await page4.waitForTimeout(300);
+const toastText = await page4.evaluate(() => {
+  const el = Array.from(document.documentElement.children).find((n) => /Copied|warning/.test(n.textContent || ''));
+  return el ? el.textContent : '';
+});
+check('the page toast announces the warning', /⚠ 1 warning/.test(toastText), toastText);
+
 await ctx.close();
 server.close();
 console.log(`\n${failures === 0 ? 'E2E PASS' : `E2E FAIL (${failures})`}`);

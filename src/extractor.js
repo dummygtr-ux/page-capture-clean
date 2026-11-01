@@ -91,6 +91,14 @@
     return null;
   }
 
+  /* Read a subtree as if it were on screen. Used wherever a node is a data
+   * record (a table cell, a list item, a collapsed panel) rather than UI. */
+  function readThrough(ctx, fn) {
+    const prev = ctx.forceVisible;
+    ctx.forceVisible = true;
+    try { return fn(); } finally { ctx.forceVisible = prev; }
+  }
+
   function isIcon(el) {
     const cls = typeof el.className === 'string' ? el.className : '';
     if (!/aui-icon|(^|[-_\s])(icon|iconfont|emoji|glyph|spinner|skeleton|ripple|badge-dot)([-_\s]|$)/i.test(cls)) return false;
@@ -116,15 +124,61 @@
   /* Capture an invisible region anyway, but label it so the reader knows it was
    * not on the screen. Deduplicated, size-gated and capped, because naive
    * "capture everything hidden" in a modern app yields menus and tooltips. */
+  const HIDDEN_REGION_CAP = 2000;
+
+  /* Every string a reader can still reach in this scope, minus subtrees the
+   * author marked "not for reading" (aria-hidden / hidden). Off-screen and
+   * display:none text stays in: those are usually the only copy of the value,
+   * while aria-hidden copies are the usual duplicates. Attribute checks only —
+   * no style resolution, so this pass is cheap. */
+  function trigrams(text) {
+    const w = (text || '').split(/\s+/).filter(Boolean);
+    const out = new Set();
+    for (let i = 0; i + 2 < w.length; i++) out.add(w[i] + ' ' + w[i + 1] + ' ' + w[i + 2]);
+    return out;
+  }
+
+  function referenceText(el) {
+    let out = '';
+    (function rec(n) {
+      if (n.nodeType === 1) {
+        if (n.getAttribute('aria-hidden') === 'true' || n.hidden) return;
+      } else if (n.nodeType === 3) {
+        out += n.nodeValue + ' ';
+        return;
+      } else {
+        return;
+      }
+      for (const c of n.childNodes) rec(c);
+    })(el);
+    return normalise(out);
+  }
+  const normalise = (t) => (t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+
   function maybePushHidden(el, reason, push, ctx, opts) {
     if (opts.includeHidden === 'off') return;
-    if (ctx.hiddenCount >= 80) return;
-    if (/^(aria-hidden|hidden-attr)$/.test(reason) && opts.includeHidden !== 'all') return;
     if (isIcon(el)) return;
+    if (ctx.hiddenCount >= HIDDEN_REGION_CAP) { ctx.diag.hiddenCapped++; return; }
     const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
-    if (text.length < 12) return;
-    const key = text.slice(0, 240).toLowerCase();
-    if (ctx.seenHidden.has(key)) return;
+    if (!text) { ctx.diag.hiddenTooShort++; return; }
+    /* aria-hidden / hidden-attr are the author saying "this is not for reading".
+     * Capture them only when they are the only copy of that text — compared by
+     * 3-word shingles, because a decorative duplicate rarely repeats verbatim
+     * ("Decorative duplicate: <the same sentence>"). */
+    if (/^(aria-hidden|hidden-attr)$/.test(reason) && ctx.visibleText) {
+      const mine = trigrams(normalise(text));
+      if (mine.size >= 4) {
+        const ref = ctx.refShingles || (ctx.refShingles = trigrams(ctx.visibleText));
+        let hit = 0;
+        for (const g of mine) if (ref.has(g)) hit++;
+        if (hit / mine.size >= 0.6) { ctx.diag.hiddenSkippedDuplicates++; return; }
+      } else {
+        const probe = normalise(text).slice(0, 400);
+        if (probe && ctx.visibleText.includes(probe)) { ctx.diag.hiddenSkippedDuplicates++; return; }
+      }
+    }
+    const key = text.slice(0, 400).toLowerCase();
+    if (ctx.seenHidden.has(key)) { ctx.diag.hiddenSkippedDuplicates++; return; }
     ctx.seenHidden.add(key);
 
     const label = (el.getAttribute('aria-label') || el.getAttribute('data-label') ||
@@ -141,6 +195,7 @@
     }
     if (!inner.length) return;
     ctx.hiddenCount++;
+    ctx.diag.hiddenRegions++;
     push({ type: 'hidden', reason, label, blocks: inner });
   }
 
@@ -337,10 +392,45 @@
 
   /* Turn a node's children into inline nodes. `preserveWs` keeps text verbatim
    * (inside white-space:pre elements). */
+  /* Text that exists only in an attribute: title, data-tooltip, aria-label…
+   * Real data (approval notes, expiry dates, capacities) that a hover reveals
+   * and a naive copy throws away. Captured as its own inline node. */
+  const TIP_ATTRS = ['title', 'data-tooltip', 'data-original-title', 'data-tip', 'aria-description'];
+
+  function appendTip(el, nodes, ctx) {
+    // A hidden element's attributes belong to the hidden-region capture, not to
+    // an inline annotation — otherwise the label would shadow the content.
+    if (!ctx || !ctx.forceVisible) {
+      if (el.isConnected && hiddenReason(el, ctx && ctx.win)) return nodes;
+    }
+    const tag = el.tagName;
+    if (tag === 'A' || tag === 'IMG' || tag === 'ABBR' || tag === 'AREA') return nodes;
+    let val = '';
+    for (const a of TIP_ATTRS) {
+      const v = el.getAttribute && el.getAttribute(a);
+      if (v && v.trim()) { val = v.trim(); break; }
+    }
+    const text = plainOf(nodes || []).trim();
+    if (!val) {
+      const label = el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('data-label'));
+      if (label && label.trim() && !text) val = label.trim();      // icon-only glyph
+    }
+    if (!val) return nodes;
+    const v = val.toLowerCase(), t = text.toLowerCase();
+    // Only drop the attribute when it adds nothing: same words, or already shown.
+    if (t && (t === v || t.includes(v))) return nodes;
+    if (ctx && ctx.diag) ctx.diag.tips++;
+    return (nodes && nodes.length ? nodes : []).concat([{ t: 'tip', v: val }]);
+  }
+
   /* Inline nodes for ONE element, including the element's own formatting.
    * This is the single place that decides how an element becomes inline
    * markup; both the block walker and the inline collector go through it. */
   function inlineForElement(el, ctx, pre) {
+    return appendTip(el, inlineForElementInner(el, ctx, pre), ctx);
+  }
+
+  function inlineForElementInner(el, ctx, pre) {
     const win = ctx.win, base = ctx.base;
     const tag = el.tagName;
     if (skipEl(el, ctx)) return [];
@@ -514,6 +604,10 @@
     return {
       win, base: doc.baseURI || '', doc, baseFont,
       forceVisible: false, hiddenCount: 0, seenHidden: new Set(),
+      diag: {
+        hiddenRegions: 0, hiddenSkippedDuplicates: 0, hiddenCapped: 0, hiddenTooShort: 0,
+        emptyItems: 0, tips: 0, hiddenRowsSkipped: 0, hiddenItemsSkipped: 0,
+      },
     };
   }
 
@@ -580,21 +674,47 @@
   }
 
   function listFrom(list, ctx, opts) {
+    const includeHidden = opts.includeHidden !== 'off';
     const ordered = list.tagName === 'OL';
     const start = ordered ? Number(list.getAttribute('start') || 1) || 1 : 1;
     const items = [];
+    let domItems = 0;
+
     for (const li of Array.from(list.children)) {
-      if (li.tagName !== 'LI' || skipEl(li, ctx)) continue;
+      if (li.tagName !== 'LI') continue;
+      const reason = hiddenReasonDeep(li, ctx);
+      if (reason && !includeHidden) {
+        if ((li.textContent || '').trim()) ctx.diag.hiddenItemsSkipped++;
+        continue;
+      }
+      if ((li.textContent || '').trim()) domItems++;
+
       let checked = null;
       const box = li.querySelector(':scope > input[type="checkbox"]');
       if (box) checked = !!box.checked;
+
       const blocks = [];
-      walkBlocks(li, blocks, ctx, Object.assign({}, opts, { dropBoilerplate: false }));
-      if (!blocks.length) continue;
+      // A list item is a data record: read it through hidden wrappers.
+      readThrough(ctx, () => {
+        walkBlocks(li, blocks, ctx, Object.assign({}, opts, { dropBoilerplate: false }));
+      });
+
+      if (!blocks.length) {
+        // Nothing structured, but the DOM still has text: take it verbatim.
+        const text = (li.textContent || '').trim();
+        if (text) {
+          const inline = readThrough(ctx, () => inlineOf(li, ctx));
+          if (inline.length) blocks.push({ type: 'para', inline });
+        }
+      }
+      if (!blocks.length) {
+        if ((li.textContent || '').trim()) ctx.diag.emptyItems++;
+        continue;
+      }
       items.push({ checked, blocks });
     }
     if (!items.length) return null;
-    return { type: 'list', ordered, start, items };
+    return { type: 'list', ordered, start, items, ...(domItems ? { domItems } : {}) };
   }
 
   function dlFrom(dl, ctx, opts, push) {
@@ -652,6 +772,15 @@
     }
     if (!kept.length) return null;
 
+    // Denominator for the completeness check: rows that hold something.
+    const meaningfulRows = rows.filter((tr) => (tr.textContent || '').trim().length > 0 &&
+      (includeHidden || !hiddenReasonDeep(tr, ctx))).length;
+    if (!includeHidden) {
+      for (const tr of rows) {
+        if (hiddenReasonDeep(tr, ctx) && (tr.textContent || '').trim()) ctx.diag.hiddenRowsSkipped++;
+      }
+    }
+
     const cellEmpty = (c) => !c || !c.some((n) => (n.v || '').trim() || n.t !== 'text');
     // A spacer row is only a spacer if the DOM row is empty too.
     let kept2 = kept.filter((r) => !r.cells.every(cellEmpty) || (r.tr.textContent || '').trim().length > 0);
@@ -680,6 +809,7 @@
       type: 'table',
       head: isHead ? [rendered[0]] : [],
       rows: isHead ? rendered.slice(1) : rendered,
+      domRows: meaningfulRows,
       ...(hiddenRows.length ? { hiddenRows } : {}),
     };
   }
@@ -793,17 +923,20 @@
     });
     const headCount = headerish ? 1 : 0;
     const hiddenRows = kept.map((r, i) => (r.hidden ? i - headCount : -1)).filter((i) => i >= 0);
+    const meaningfulRows = rows.filter((row) => (row.textContent || '').trim().length > 0 &&
+      (includeHidden || !hiddenReasonDeep(row, ctx))).length;
 
     return {
       type: 'table',
       head: headerish ? [rendered[0]] : [],
+      domRows: meaningfulRows,
       rows: headerish ? rendered.slice(1) : rendered,
       ...(hiddenRows.length ? { hiddenRows } : {}),
     };
   }
 
   /* role="list" / display:list-item / ::before bullets — recover the list. */
-  function divList(el, ctx) {
+  function divList(el, ctx, opts) {
     const win = ctx.win;
     const kids = Array.from(el.children).filter((c) => !isIcon(c));
     if (kids.length < 2) return null;
@@ -824,22 +957,37 @@
       byBulletText && info.every((i) => /^\d+[.)]\s/.test((i.el.textContent || '').trim())) ||
       info.some((i) => /^\d+[.)]$/.test(i.marker));
 
+    const includeHidden = !opts || opts.includeHidden !== 'off';
     const items = [];
+    let domItems = 0;
     for (const i of info) {
+      const reason = hiddenReasonDeep(i.el, ctx);
+      if (reason && !includeHidden) continue;
+      if ((i.el.textContent || '').trim()) domItems++;
+
       const blocks = [];
-      if (hasBlockChild(win, i.el)) {
-        walkBlocks(i.el, blocks, ctx, { dropBoilerplate: false, includeHidden: 'off' });
-      } else {
-        let inline = inlineOf(i.el, ctx);
-        // the bullet may be literal text inside the item
-        const first = inline[0];
-        if (first && first.t === 'text') first.v = first.v.replace(/^[•·▪◦‣⁃]\s+/, '');
+      readThrough(ctx, () => {
+        if (hasBlockChild(win, i.el)) {
+          walkBlocks(i.el, blocks, ctx, { dropBoilerplate: false });
+        } else {
+          const inline = inlineOf(i.el, ctx);
+          const first = inline[0];
+          if (first && first.t === 'text') first.v = first.v.replace(/^[•·▪◦‣⁃]\s+/, '');
+          if (inline.length) blocks.push({ type: 'para', inline });
+        }
+      });
+      if (!blocks.length && (i.el.textContent || '').trim()) {
+        const inline = readThrough(ctx, () => inlineOf(i.el, ctx));
         if (inline.length) blocks.push({ type: 'para', inline });
       }
-      if (blocks.length) items.push({ checked: null, blocks });
+      if (!blocks.length) {
+        if ((i.el.textContent || '').trim()) ctx.diag.emptyItems++;
+        continue;
+      }
+      items.push({ checked: null, blocks });
     }
     if (items.length < 2) return null;
-    return { type: 'list', ordered, start: 1, items };
+    return { type: 'list', ordered, start: 1, items, ...(domItems ? { domItems } : {}) };
   }
 
   /* "Customer: ACME" rows built out of two divs. */
@@ -882,7 +1030,7 @@
     const table = divTable(el, ctx, opts);
     if (table) return table;
 
-    const list = divList(el, ctx);
+    const list = divList(el, ctx, opts);
     if (list) return list;
 
     // "label | value" rows are built from two *block* divs, so this has to be
@@ -894,6 +1042,9 @@
 
     const inline = inlineOf(el, ctx);
     if (!inline.length) return null;
+    // Tips alone mean the box itself has no text: let the walker descend so the
+    // elements that carry the content (including hidden ones) are handled.
+    if (!inline.some((n) => n.t !== 'tip')) return null;
 
     const level = headingLevelFor(el, ctx);
     if (level) return { type: 'heading', level, inline: plainifyInline(inline) };
@@ -1063,6 +1214,10 @@
     const pick = pickScope(doc, opts);
     const blocks = [];
 
+    // Reference text used to suppress hidden duplicates of content we already have.
+    try { ctx.visibleText = referenceText(pick.el).slice(0, 400_000); }
+    catch (e) { ctx.visibleText = ''; }
+
     if (pick.kind === 'selection' && pick.range) {
       // Detached copy of the selection: exactly the selected content, no more.
       const holder = doc.createElement('div');
@@ -1094,7 +1249,101 @@
       selector: pick.selector || '',
     };
 
-    return { meta, blocks };
+    const diagnostics = verifyCapture(doc, pick, blocks, ctx, opts);
+    return { meta, blocks, diagnostics };
+  }
+
+  /* ------------------------------------------------------- completeness
+   * The failure mode that matters is not a crash but a confident, plausible,
+   * half-complete capture. This compares what came out with what the DOM says
+   * should be there, and says so in the output itself.
+   * ------------------------------------------------------------------- */
+  function plainOfBlocks(blocks) {
+    let out = '';
+    for (const b of blocks) {
+      if (b.inline) out += plainOf(b.inline) + ' ';
+      if (b.type === 'code') out += b.text + ' ';
+      if (b.blocks) out += plainOfBlocks(b.blocks);
+      if (b.items) for (const i of b.items) out += plainOfBlocks(i.blocks) + ' ';
+      if (b.rows) for (const r of b.rows) for (const c of r) out += plainOf(c) + ' ';
+      if (b.head) for (const r of b.head) for (const c of r) out += plainOf(c) + ' ';
+      if (b.caption) out += plainOf(b.caption) + ' ';
+    }
+    return out;
+  }
+
+  function locate(b) {
+    const first = (b.head && b.head[0]) || (b.rows && b.rows[0]) || null;
+    if (!first) return '';
+    const cells = first.map((c) => plainOf(c).trim()).filter(Boolean).slice(0, 3);
+    return cells.length ? `"${cells.join(' | ').slice(0, 60)}"` : '';
+  }
+
+  function verifyCapture(doc, pick, blocks, ctx, opts) {
+    const warnings = [];
+    const stats = {
+      tables: 0, tableRows: 0, tableRowsCaptured: 0,
+      lists: 0, listItems: 0, listItemsCaptured: 0,
+      hiddenRegions: ctx.diag.hiddenRegions, hiddenDuplicatesSkipped: ctx.diag.hiddenSkippedDuplicates,
+      rowsHiddenAndSkipped: ctx.diag.hiddenRowsSkipped + ctx.diag.hiddenItemsSkipped,
+      tooltipValues: ctx.diag.tips,
+      emptyItems: ctx.diag.emptyItems, textCoverage: null,
+    };
+
+    const walk = (bs) => {
+      for (const b of bs) {
+        if (b.type === 'table') {
+          stats.tables++;
+          const emitted = (b.rows ? b.rows.length : 0) + (b.head ? b.head.length : 0);
+          const dom = Math.max(emitted, b.domRows || 0);
+          stats.tableRows += dom;
+          stats.tableRowsCaptured += emitted;
+          if (b.domRows && emitted < b.domRows) {
+            const missing = b.domRows - emitted;
+            const where = locate(b);
+            warnings.push(`${missing} of ${b.domRows} row(s) missing from a table${where ? ' ' + where : ''}`);
+          }
+        }
+        if (b.type === 'list') {
+          stats.lists++;
+          const emitted = b.items.length;
+          const dom = Math.max(emitted, b.domItems || 0);
+          stats.listItems += dom;
+          stats.listItemsCaptured += emitted;
+          if (b.domItems && emitted < b.domItems) {
+            warnings.push(`${b.domItems - emitted} of ${b.domItems} item(s) missing from a list`);
+          }
+        }
+        if (b.blocks) walk(b.blocks);
+        if (b.items) for (const i of b.items) walk(i.blocks);
+      }
+    };
+    walk(blocks);
+
+    const skippedHidden = ctx.diag.hiddenRowsSkipped + ctx.diag.hiddenItemsSkipped;
+    if (skippedHidden) {
+      warnings.push(`${skippedHidden} row(s)/item(s) were hidden and skipped because Hidden content = Ignore`);
+    }
+    if (ctx.diag.emptyItems) {
+      warnings.push(`${ctx.diag.emptyItems} row(s)/item(s) had no readable text`);
+    }
+    if (ctx.diag.hiddenCapped) {
+      warnings.push(`${ctx.diag.hiddenCapped} hidden region(s) dropped at the ${HIDDEN_REGION_CAP} cap`);
+    }
+
+    // Crude but honest coverage check: how much of the scope's text made it out?
+    try {
+      const domText = normalise(pick.el.textContent || '');
+      const outText = normalise(plainOfBlocks(blocks));
+      if (domText.length > 400) {
+        stats.textCoverage = Math.round((outText.length / domText.length) * 100) / 100;
+        if (stats.textCoverage < 0.35) {
+          warnings.push(`only ${Math.round(stats.textCoverage * 100)}% of the page text was captured`);
+        }
+      }
+    } catch (e) { /* ignore */ }
+
+    return { complete: warnings.length === 0, warnings, stats };
   }
 
   // ------------------------------------------------------------- renderers
@@ -1197,6 +1446,9 @@
           s += `[${label || escapeMd(cleanUrl(n.href))}](${href}${title})`;
           break;
         }
+        case 'tip':
+          s += ' [title: ' + escapeMd(n.v) + ']';
+          break;
         case 'img': {
           const alt = (n.alt || '').trim();
           if (MODE.images === 'full') {
@@ -1296,6 +1548,15 @@
     }
   }
 
+  /* Says out loud that the capture may be short. Silence is the real bug. */
+  function warningBlock(doc) {
+    const d = doc && doc.diagnostics;
+    if (!d || d.complete) return '';
+    const lines = d.warnings.slice(0, 4).map((w) => '> - ' + w);
+    if (d.warnings.length > 4) lines.push(`> - …and ${d.warnings.length - 4} more`);
+    return ['> [!WARNING]', '> Possible incomplete extraction:', ...lines].join('\n');
+  }
+
   function toMarkdown(doc, opts) {
     const o = opts || {};
     const profile = o.profile || 'llm';         // 'lean' | 'llm' | 'document'
@@ -1320,6 +1581,8 @@
     if (m.title) out.push('# ' + m.title.replace(/\s+/g, ' ').trim(), '');
     out.push(`Source: ${m.url}`);
     if (m.byline && profile !== 'lean') out.push(`Author: ${m.byline}`);
+    const warn = warningBlock(doc);
+    if (warn) out.push('', warn);
     out.push('', '');
     return out.join('\n') + body + '\n';
   }
@@ -1344,6 +1607,7 @@
         case 'sup': s += '<sup>' + htmlInline(n.c) + '</sup>'; break;
         case 'code': s += '<code>' + htmlInline(n.c) + '</code>'; break;
         case 'a': s += `<a href="${esc(n.href)}"${n.title ? ` title="${esc(n.title)}"` : ''}>${htmlInline(n.c)}</a>`; break;
+        case 'tip': s += `<span class="attr-title" title="${esc(n.v)}">[title: ${esc(n.v)}]</span>`; break;
         case 'img': s += `<img src="${esc(n.src)}" alt="${esc(n.alt || '')}"${n.title ? ` title="${esc(n.title)}"` : ''}>`; break;
         default: s += n.c ? htmlInline(n.c) : '';
       }
@@ -1404,7 +1668,9 @@
 <meta name="captured-at" content="${esc(m.capturedAt)}">
 </head>
 <body>
-<article>
+${(doc.diagnostics && !doc.diagnostics.complete)
+  ? `<aside class="capture-warning">Possible incomplete extraction:<ul>${doc.diagnostics.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></aside>\n`
+  : ''}<article>
 ${htmlBlocks(doc.blocks)}
 </article>
 </body>
@@ -1417,6 +1683,7 @@ ${htmlBlocks(doc.blocks)}
     for (const n of nodes) {
       if (n.t === 'text') s += n.v;
       else if (n.t === 'br') s += '\n';
+      else if (n.t === 'tip') s += ` [title: ${n.v}]`;
       else if (n.t === 'img') s += n.alt ? `[${n.alt}]` : '';
       else s += plainInline(n.c || []);
     }
@@ -1473,7 +1740,11 @@ ${htmlBlocks(doc.blocks)}
       }
     };
     walk(doc.blocks, '');
-    return out.filter((s, i, a) => s !== '' || a[i - 1] !== '').join('\n\n').replace(/\n{3,}/g, '\n\n') + '\n';
+    const body = out.filter((s, i, a) => s !== '' || a[i - 1] !== '').join('\n\n').replace(/\n{3,}/g, '\n\n');
+    const warn = doc.diagnostics && !doc.diagnostics.complete
+      ? ['! Possible incomplete extraction:', ...doc.diagnostics.warnings.map((w) => '! - ' + w)].join('\n') + '\n\n'
+      : '';
+    return warn + body + '\n';
   }
 
   /* ---------------------------------------------------------------------
@@ -1695,7 +1966,22 @@ ${htmlBlocks(doc.blocks)}
 
     // ---- result ----------------------------------------------------------
     const md = toMarkdown(doc2, { profile: 'llm' });
-    push('## 6. Capture result', '');
+    push('## 6. Completeness check', '');
+    const diag = doc2.diagnostics || { complete: true, warnings: [], stats: {} };
+    push(diag.complete
+      ? 'No mismatch detected between the DOM and the extracted content.'
+      : '**Possible incomplete extraction** — ' + diag.warnings.length + ' warning(s):', '');
+    for (const w of diag.warnings) push('- ' + w);
+    if (!diag.complete) push('');
+    const ds = diag.stats || {};
+    push(`- tables: ${ds.tables || 0}, rows in DOM: ${ds.tableRows || 0}, rows captured: ${ds.tableRowsCaptured || 0}`);
+    push(`- lists: ${ds.lists || 0}, items in DOM: ${ds.listItems || 0}, items captured: ${ds.listItemsCaptured || 0}`);
+    push(`- hidden regions captured: ${ds.hiddenRegions || 0}, skipped as duplicates: ${ds.hiddenDuplicatesSkipped || 0}`);
+    push(`- tooltip/attribute values captured: ${ds.tooltipValues || 0}`);
+    if (ds.textCoverage != null) push(`- text coverage: ${Math.round(ds.textCoverage * 100)}% of the scope's text`);
+    push('');
+
+    push('## 7. Capture result', '');
     push('- Scope: `' + (doc2.meta.selector || doc2.meta.scope) + '`');
     push('- Blocks: ' + doc2.blocks.length + ' · characters: ' + md.length.toLocaleString() + ' · ~tokens: ' + Math.round(md.length / 3.8).toLocaleString());
     push('');
