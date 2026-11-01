@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Headerless tables and repeating list text</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; }
+  table { border-collapse: collapse; }
+  td, th { border: 1px solid #ccc; padding: 3px 8px; }
+  .panel { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Activity for account 7781</h1>
+
+  <!-- 1. Headerless table, newest entry first. No <th>, no <thead>. -->
+  <h2>Recent activity</h2>
+  <table id="headerless">
+    <tbody>
+      <tr><td>2026-11-02 08:14</td><td>Carrier</td><td>Returned to sender</td></tr>
+      <tr><td>2026-11-01 19:02</td><td>Warehouse</td><td>Out for delivery</td></tr>
+      <tr><td>2026-10-31 11:20</td><td>Warehouse</td><td>Arrived at hub</td></tr>
+    </tbody>
+  </table>
+
+  <!-- 2. Headerless parent/child pair: parent row must survive. -->
+  <h2>Balance</h2>
+  <table id="parent-child">
+    <tbody>
+      <tr><td>Parent account</td><td>2,480.00</td></tr>
+      <tr><td>Child account</td><td>1,240.00</td></tr>
+    </tbody>
+  </table>
+
+  <!-- 3. Headerless table inside a collapsed panel: newest row on top. -->
+  <div class="panel" data-label="scan-history">
+    <table id="in-panel">
+      <tbody>
+        <tr><td>2026-11-02 07:55</td><td>Out for delivery</td></tr>
+        <tr><td>2026-11-01 23:10</td><td>Scanned at depot</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 4. Ordered list whose first item repeats a value shown above. -->
+  <h2>Next actions</h2>
+  <p>The current status is: Out for delivery</p>
+  <ol id="actions">
+    <li>Out for delivery</li>
+    <li>Confirm delivery window with the customer</li>
+    <li>Close the ticket after confirmation</li>
+  </ol>
+
+  <!-- 5. The same repetition inside an unordered list. -->
+  <ul id="notes">
+    <li>Carrier</li>
+    <li>Carrier contact details are on file</li>
+  </ul>
+</main>
+</body>
+</html>

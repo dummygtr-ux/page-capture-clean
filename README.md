@@ -203,6 +203,28 @@ hidden region with reason + label + CSS path, which structures were inferred, an
 `user-select:none` elements (the reason Ctrl+A/C misses text), iframes, canvases and
 shadow roots. That report is the input needed to add a rule for a site I cannot see.
 
+## Why rows went missing (fixed in 1.2.2)
+
+Two bugs in the **Markdown renderer** — not in the DOM walk. The block tree held every row the
+whole time, which is why block-level validation reported "complete" while the pasted text was short:
+
+1. **Headerless tables lost their first row.** GFM requires a header line, and the renderer was
+   paying for it with the table's first row: it printed an empty header, then dropped `rows[0]`.
+   Tables without `<th>`/`<thead>` are the norm in dynamic UIs, and when rows are sorted
+   newest-first the first row *is* the newest one. Fixed by emitting a blank header and keeping
+   every row.
+2. **A list item repeating text seen elsewhere rendered blank.** The lean profile collapses
+   duplicate paragraphs; when an item's only paragraph duplicated something earlier on the page,
+   it became `1. ` with nothing after it. Dedupe no longer runs inside list items.
+
+A third, related bug: the UI-chrome filter dropped any element whose class or id merely *read* like
+chrome — a content list with `id="actions"` was deleted outright. It now requires an actual control
+(`button`, `role=button/tab/menuitem`, `onclick`, `data-action`).
+
+Validation now also counts **rendered output** against the DOM, per table and per list: if the
+renderer prints fewer rows than the block tree holds, or any list item prints as a bare marker,
+that is reported.
+
 ## Never silently incomplete
 
 The worst failure is not a crash — it is a confident, plausible, half-complete capture. So every

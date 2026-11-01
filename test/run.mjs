@@ -311,6 +311,39 @@ check('independent check catches a row the extractor cannot read', sabotaged.com
   /1 of 3 row\(s\) in the DOM are not in the capture/.test(sabotaged.warnings.join(' ')), JSON.stringify(sabotaged.warnings));
 check('and the warning reaches the output', sabotaged.md.includes('Possible incomplete extraction'));
 
+// ------------------------ 4th reproduction: loss in the RENDERER, not the walk
+/* The block tree was correct all along; the markdown renderer threw rows away.
+ * These are the cases that survived two "fixes". */
+const rlUrl = pathToFileURL(resolve(HERE, 'fixtures/render-loss.html')).href;
+await load(rlUrl);
+const rl = await run('content');
+writeFileSync(resolve(OUT, 'render-loss.md'), rl.md);
+console.log('\nrenderer loss fixture:\n' + rl.md);
+
+check('headerless table keeps its first (newest) row', rl.md.includes('| 2026-11-02 08:14 | Carrier | Returned to sender |'));
+check('headerless table keeps all 3 rows', (rl.md.match(/^\| 2026-1[01]-\d\d /gm) || []).length === 3, String((rl.md.match(/^\| 2026/gm) || []).length));
+check('headerless parent/child table keeps the parent row', rl.md.includes('| Parent account | 2,480.00 |'));
+check('headerless table inside a collapsed panel keeps its newest row',
+  /scan-history[\s\S]{0,200}2026-11-02 07:55[\s\S]{0,120}Scanned at depot/.test(rl.md));
+check('list item repeating earlier text is not blanked', /^1\. Out for delivery$/m.test(rl.md), (rl.md.split('Next actions')[1] || '').slice(0, 160));
+check('no list item renders as a bare marker', !/^(\d+\.|-)\s*$/m.test(rl.md));
+check('list with id="actions" is not mistaken for chrome', /^3\. Close the ticket after confirmation$/m.test(rl.md));
+check('every DOM row reaches the output', rl.json.diagnostics.stats.tableRows === rl.json.diagnostics.stats.tableRowsCaptured,
+  JSON.stringify(rl.json.diagnostics.stats));
+check('renderer-level validation is clean on a complete page', rl.json.diagnostics.complete === true, JSON.stringify(rl.json.diagnostics.warnings));
+
+// the render check must catch a genuinely blank list item
+const blankLi = await page.evaluate(() => {
+  const d = document.createElement('div');
+  d.innerHTML = '<ol><li></li><li>second</li></ol>';
+  document.querySelector('main').appendChild(d);
+  const doc = PageCapture.capture({ scope: 'content' });
+  const warn = doc.diagnostics.warnings.join(' | ');
+  d.remove();
+  return warn;
+});
+check('a blank list item is reported, not ignored', /list item\(s\)/.test(blankLi), blankLi);
+
 // ---------------------------------------------------------------- selection
 await page.goto(fixture);
 await page.addScriptTag({ content: extractorSource });

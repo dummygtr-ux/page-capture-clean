@@ -1,6 +1,6 @@
 {
   "name": "page-capture",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "type": "module",
   "description": "Browser extension: capture the active page as structure-preserving Markdown / JSON / plain text / styled HTML.",

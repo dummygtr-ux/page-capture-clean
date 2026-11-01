@@ -640,28 +640,40 @@
   const INTERACTIVE_ROLE = /^(button|menuitem|menuitemcheckbox|menuitemradio|menubar|tab|tablist|toolbar|menu|switch|checkbox|radio|option|combobox|listbox|slider|spinbutton|scrollbar|searchbox|textbox|search|progressbar)$/;
   const CONTROL_CLASS_RE = /(^|[-_\s])(btn|button|buttons|toolbar|actions?|kebab|pagination|pager|stepper|close|dismiss|toggle|switch|chip-button|icon-btn|nav-?bar|topbar|app-?bar|fab)($|[-_\s])/i;
 
+  /* UI scaffolding must be *proven* scaffolding. A class or id that merely
+   * reads like chrome ("actions", "toolbar") is not enough: a content list with
+   * id="actions" is still content. Requires an actual control. */
+  const NON_CHROME_TAGS = /^(TABLE|THEAD|TBODY|TFOOT|TR|TD|TH|OL|UL|LI|DL|DT|DD|PRE|H[1-6]|P|ARTICLE|MAIN|SECTION|BLOCKQUOTE|FIGURE)$/;
+  const CONTROL_SELECTOR = 'button, [role="button"], [role="menuitem"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], [role="option"], [onclick], [ng-click], [data-action]';
+
+  function hasControls(el) {
+    if (el.matches && el.matches(CONTROL_SELECTOR)) return true;
+    return !!el.querySelector(CONTROL_SELECTOR);
+  }
+
   function isInteractiveChrome(el) {
+    if (NON_CHROME_TAGS.test(el.tagName)) return false;
     const text = (el.textContent || '').trim();
-    if (text.length > 120) return false;                    // too much text to be a control
-    if (el.querySelector('p, table, pre, [role="table"], ul, ol, dl')) return false;
+    if (!text) return false;
+    if (text.length > 120) return false;
+    // Anything holding real structure is a container, not a control.
+    if (el.querySelector('p, table, pre, [role="table"], ul, ol, dl, li')) return false;
+
+    // The element itself is a control (button, menu item, tab…)
     const role = (el.getAttribute('role') || '').toLowerCase();
-    if (role && INTERACTIVE_ROLE.test(role)) return true;
-    if (el.hasAttribute('onclick') || el.hasAttribute('ng-click') || el.hasAttribute('data-action')) return true;
-    const cls = (typeof el.className === 'string' ? el.className : '') + ' ' + (el.id || '');
-    if (cls.trim() && CONTROL_CLASS_RE.test(cls)) return true;
-    // A container of nothing but *controls* is an action bar. Plain <a> children
-    // do not count: a paragraph or citation line made of links is content.
-    if (!/^(DIV|SECTION|SPAN|HEADER|FOOTER|NAV|ASIDE|TD|FORM|LI|P|H[1-6])$/.test(el.tagName)) return false;
-    if (/^(P|H[1-6]|LI|TD)$/.test(el.tagName)) return false;
+    if (role && INTERACTIVE_ROLE.test(role) && !el.children.length) return true;
+    if (el.tagName === 'BUTTON') return true;
+
+    // Otherwise it is only chrome when it is made OF controls.
     const kids = Array.from(el.children).filter((c) => !isIcon(c));
-    if (kids.length >= 2) {
-      const allControls = kids.every((c) => {
-        const r = (c.getAttribute('role') || '').toLowerCase();
-        return INTERACTIVE_ROLE.test(r) || c.tagName === 'BUTTON' ||
-          c.hasAttribute('onclick') || c.hasAttribute('data-action');
-      });
-      if (allControls && (el.textContent || '').trim().length < 120) return true;
-    }
+    if (!kids.length) return false;
+    const controlKids = kids.filter((c) => c.matches(CONTROL_SELECTOR) || c.tagName === 'BUTTON' ||
+      /^(A)$/.test(c.tagName) && (c.hasAttribute('onclick') || c.hasAttribute('data-action'))).length;
+    if (controlKids === kids.length) return true;
+
+    // A named toolbar/menu whose children are mostly controls.
+    const cls = (typeof el.className === 'string' ? el.className : '') + ' ' + (el.id || '');
+    if (CONTROL_CLASS_RE.test(cls) && controlKids / kids.length >= 0.6) return true;
     return false;
   }
 
@@ -1332,6 +1344,18 @@
         if (b.type === 'table') {
           stats.tables++;
           const emitted = (b.rows ? b.rows.length : 0) + (b.head ? b.head.length : 0);
+          // Renderers can lose rows the block tree still has, so count the
+          // rendered markdown too. This is what the user actually pastes.
+          const renderedRows = (() => {
+            try {
+              const md = mdBlock(b);
+              const pipeLines = md.split('\n').filter((l) => l.startsWith('|'));
+              return Math.max(0, pipeLines.length - 2) + (b.head && b.head.length ? 1 : 0);
+            } catch (e) { return emitted; }
+          })();
+          if (renderedRows < emitted) {
+            warnings.push(`${emitted - renderedRows} row(s) were lost while rendering a table${b.domRowCount ? ` (${renderedRows} of ${emitted} printed)` : ''}`);
+          }
           // domRowCount comes from the DOM itself (table.rows / [role=row]),
           // never from the extraction path — otherwise the check would inherit
           // the very bug it is meant to catch.
@@ -1347,6 +1371,14 @@
         if (b.type === 'list') {
           stats.lists++;
           const emitted = b.items.length;
+          // A list item that renders as a bare marker is a silent data loss.
+          const blank = (() => {
+            try {
+              const md = mdBlock(b);
+              return md.split('\n').filter((l) => /^(\s*)(\d+\.|[-*+]) ?$/.test(l) || /^(\s*)(\d+\.|[-*+])\s*$/.test(l)).length;
+            } catch (e) { return 0; }
+          })();
+          if (blank) warnings.push(`${blank} list item(s) rendered as an empty marker`);
           const dom = Math.max(emitted, b.domItemCount || 0, b.domItems || 0);
           stats.listItems += dom;
           stats.listItemsCaptured += emitted;
@@ -1420,7 +1452,9 @@
   /* Apps repeat themselves: the same tooltip, the same hint, the same status
    * sentence in three panels. In lean mode identical paragraphs collapse. */
   function dedupePara(text) {
-    if (!MODE.dedupe || text.length < 24) return text;
+    // Never inside a list item: collapsing an item's only paragraph leaves a
+    // bare "1." marker, which reads as "this row is empty".
+    if (!MODE.dedupe || MODE.inListItem || text.length < 24) return text;
     const key = text.replace(/\s+/g, ' ').trim().toLowerCase();
     if (MODE.seen.has(key)) return '';
     MODE.seen.add(key);
@@ -1549,7 +1583,10 @@
           const marker = b.ordered
             ? `${(b.start || 1) + i}. `
             : (item.checked === true ? '- [x] ' : item.checked === false ? '- [ ] ' : '- ');
-          const body = mdBlocks(item.blocks, true);
+          const prevInList = MODE.inListItem;
+          MODE.inListItem = true;
+          let body;
+          try { body = mdBlocks(item.blocks, true); } finally { MODE.inListItem = prevInList; }
           const lines = body.split('\n');
           const cont = ' '.repeat(marker.length);
           return lines.map((l, idx) => (idx === 0 ? marker + l : l ? cont + l : '')).join('\n');
@@ -1561,10 +1598,11 @@
         const row = (r) => '| ' + Array.from({ length: width }, (_, i) => cell(r[i] || [])).join(' | ') + ' |';
         const sep = '| ' + Array.from({ length: width }, () => '---').join(' | ') + ' |';
         if (!b.head.length && !b.rows.length) return '';
+        // GFM needs a header line, but a headerless table must NOT pay for it
+        // with its first row: emit a blank header and keep every row.
         const lines = [row(b.head.length ? b.head[0] : Array.from({ length: width }, () => []))];
         lines.push(sep);
-        const bodyRows = b.head.length ? b.rows : b.rows.slice(1);
-        for (const r of bodyRows) lines.push(row(r));
+        for (const r of b.rows) lines.push(row(r));
         return lines.join('\n');
       }
       case 'figure': {
