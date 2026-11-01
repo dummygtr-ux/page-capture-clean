@@ -60,7 +60,37 @@
       html + '</body>';
   }
 
-  function runCapture(opts) {
+  /* Apps insert the newest row a beat after load. Capturing while the DOM is
+   * still mutating is how a "most recent entry" goes missing, so wait for the
+   * mutations to go quiet (or for a hard ceiling, whichever comes first). */
+  function waitForDomStable({ quiet = 150, max = 1200 } = {}) {
+    return new Promise((resolve) => {
+      if (typeof MutationObserver !== 'function') { resolve(false); return; }
+      let quietTimer = null;
+      const started = Date.now();
+      let sawMutations = false;
+
+      const finish = (timedOut) => {
+        observer.disconnect();
+        clearTimeout(quietTimer);
+        clearTimeout(ceiling);
+        resolve(timedOut);
+      };
+      const observer = new MutationObserver(() => {
+        sawMutations = true;
+        clearTimeout(quietTimer);
+        quietTimer = setTimeout(() => finish(false), quiet);
+      });
+      const ceiling = setTimeout(() => finish(true), max);
+
+      observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+      // if nothing changes at all, take the quiet path immediately
+      quietTimer = setTimeout(() => { if (!sawMutations) finish(false); }, quiet);
+    });
+  }
+
+  async function runCapture(opts) {
+    if (opts.waitForDom !== false) await waitForDomStable();
     const doc = PageCapture.capture({
       scope: opts.scope,
       includeHidden: opts.includeHidden || 'mark',
@@ -158,10 +188,10 @@
   /* ------------------------------------------------------------- messages */
   async function handle(msg) {
     const opts = Object.assign({}, await settings(), msg.opts || {});
-    if (msg.type === 'capture') return runCapture(opts);
+    if (msg.type === 'capture') return await runCapture(opts);
 
     if (msg.type === 'copy') {
-      const r = runCapture(opts);
+      const r = await runCapture(opts);
       await copyToClipboard({ text: r.text, html: r.html });
       const warn = r.diagnostics && !r.diagnostics.complete
         ? ` ⚠ ${r.diagnostics.warnings.length} warning${r.diagnostics.warnings.length === 1 ? '' : 's'}`
@@ -171,7 +201,7 @@
     }
 
     if (msg.type === 'download') {
-      const r = runCapture(opts);
+      const r = await runCapture(opts);
       const ext = r.kind === 'md' ? 'md' : r.kind === 'json' ? 'json' : r.kind === 'html' ? 'html' : 'txt';
       download(`${slug(document.title)}-${new Date().toISOString().slice(0, 10)}.${ext}`, r.text, r.mime);
       toast(`Saved .${ext} · ${r.chars.toLocaleString()} chars`);

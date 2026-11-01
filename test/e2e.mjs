@@ -182,7 +182,7 @@ const toastText = await page4.evaluate(() => {
   const el = Array.from(document.documentElement.children).find((n) => /Copied|warning/.test(n.textContent || ''));
   return el ? el.textContent : '';
 });
-check('the page toast announces the warning', /⚠ 1 warning/.test(toastText), toastText);
+check('the page toast announces the warning', /⚠ \d+ warnings?/.test(toastText), toastText);
 
 await ctx.close();
 server.close();

@@ -219,9 +219,13 @@ Source: https://…
 > - 1 row(s)/item(s) were hidden and skipped because Hidden content = Ignore
 ```
 
-What is compared, per capture: table rows in the DOM against rows emitted (and the same for list
-items), hidden regions captured vs skipped, tooltip values picked up, items with no readable text,
-and overall text coverage of the scope. The counts are in `diagnostics.stats` in JSON, the popup
+What is compared, per capture: **the DOM's own row count** (`table.rows.length`,
+`[role=row]`, `:scope > li`) against rows emitted, plus hidden regions captured vs skipped,
+tooltip values picked up, items with no readable text, and overall text coverage.
+
+That count deliberately does **not** reuse the extraction filters — an earlier version did, and
+the check reported "complete" on pages that were dropping rows. It also counts tables that never
+produced a table block at all. The counts are in `diagnostics.stats` in JSON, the popup
 shows a `⚠ n` badge (hover for the list), the toast on the page appends `⚠ 1 warning`, and the
 structure report has a **Completeness check** section.
 
@@ -239,6 +243,9 @@ the only bound is a 2000-region guard on hidden blocks, and hitting it raises a 
 | **tooltip-only text** (`title`, `data-tooltip`, `data-original-title`, `data-tip`, `aria-description`, `aria-label` on an icon) | captured inline as `[title: …]` — deliberately in scope, not a limitation |
 | identical paragraphs | collapsed in the lean profile |
 | a `<tr>`/`<li>` whose DOM text is non-empty but produced no blocks | last-resort inline read, then `emptyItems` counter + warning |
+| **values in form controls** — `<input value>`, the selected `<option>`, `<textarea>` | read as text; editable rows are usually the newest row and were previously dropped as "empty chrome" |
+| a first row containing one `<th scope="row">` | kept as a **data** row; only an all-`<th>` row or a real `<thead>` counts as the header |
+| rows/DOM nodes inserted a moment after load | capture waits for the DOM to go quiet (150 ms idle, 1200 ms ceiling) before reading |
 
 Remaining honest limits: rows that only exist in the DOM **after** you expand something (rendered on
 demand) cannot be captured without opening them; so can virtualised lists; iframes, canvas and

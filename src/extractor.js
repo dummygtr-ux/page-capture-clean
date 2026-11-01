@@ -426,7 +426,31 @@
   /* Inline nodes for ONE element, including the element's own formatting.
    * This is the single place that decides how an element becomes inline
    * markup; both the block walker and the inline collector go through it. */
+  /* A value that lives in a form control is still a value. Editable rows and
+   * freshly-inserted rows are often built entirely from inputs and selects, so
+   * treating those as chrome to drop deletes exactly the newest row. */
+  function controlText(el) {
+    const tag = el.tagName;
+    if (tag === 'INPUT') {
+      const type = (el.getAttribute('type') || 'text').toLowerCase();
+      if (/^(checkbox|radio|hidden|file|submit|button|reset|image)$/.test(type)) return '';
+      const v = el.value != null && el.value !== '' ? el.value : (el.getAttribute('value') || '');
+      return String(v).trim();
+    }
+    if (tag === 'SELECT') {
+      const opt = el.selectedOptions && el.selectedOptions[0];
+      return String(opt ? (opt.textContent || opt.value || '') : '').trim();
+    }
+    if (tag === 'TEXTAREA') {
+      const v = el.value != null && el.value !== '' ? el.value : el.textContent;
+      return String(v || '').trim();
+    }
+    return '';
+  }
+
   function inlineForElement(el, ctx, pre) {
+    const ctrl = controlText(el);
+    if (ctrl) return appendTip(el, [{ t: 'text', v: ctrl }], ctx);
     return appendTip(el, inlineForElementInner(el, ctx, pre), ctx);
   }
 
@@ -714,7 +738,8 @@
       items.push({ checked, blocks });
     }
     if (!items.length) return null;
-    return { type: 'list', ordered, start, items, ...(domItems ? { domItems } : {}) };
+    const domItemCount = list.querySelectorAll(':scope > li').length;
+    return { type: 'list', ordered, start, items, domItems, domItemCount };
   }
 
   function dlFrom(dl, ctx, opts, push) {
@@ -773,6 +798,8 @@
     if (!kept.length) return null;
 
     // Denominator for the completeness check: rows that hold something.
+    // Independent of the extraction path on purpose: this is the DOM's own count.
+    const domRowCount = (() => { try { return table.rows.length; } catch (e) { return rows.length; } })();
     const meaningfulRows = rows.filter((tr) => (tr.textContent || '').trim().length > 0 &&
       (includeHidden || !hiddenReasonDeep(tr, ctx))).length;
     if (!includeHidden) {
@@ -797,7 +824,11 @@
 
     const first = finalRows[0].tr;
     const firstCells = Array.from(first.children).filter((c) => c.tagName === 'TD' || c.tagName === 'TH');
-    const isHead = firstCells.some((c) => c.tagName === 'TH') || !!first.closest('thead');
+    // One <th scope="row"> in the first row means "this row has a row header",
+    // not "this row is the table header". Treating it as a header turns the
+    // parent/summary row into the column titles and loses it from the body.
+    const isHead = (firstCells.length > 0 && firstCells.every((c) => c.tagName === 'TH')) ||
+      !!first.closest('thead');
     const headCount = isHead ? 1 : 0;
 
     const width = Math.max(1, ...finalRows.map((r) => r.cells.length));
@@ -810,6 +841,7 @@
       head: isHead ? [rendered[0]] : [],
       rows: isHead ? rendered.slice(1) : rendered,
       domRows: meaningfulRows,
+      domRowCount,
       ...(hiddenRows.length ? { hiddenRows } : {}),
     };
   }
@@ -923,6 +955,10 @@
     });
     const headCount = headerish ? 1 : 0;
     const hiddenRows = kept.map((r, i) => (r.hidden ? i - headCount : -1)).filter((i) => i >= 0);
+    const domRowCount = (() => {
+      try { return el.querySelectorAll('[role="row"], [style*="table-row"]').length || rows.length; }
+      catch (e) { return rows.length; }
+    })();
     const meaningfulRows = rows.filter((row) => (row.textContent || '').trim().length > 0 &&
       (includeHidden || !hiddenReasonDeep(row, ctx))).length;
 
@@ -930,6 +966,7 @@
       type: 'table',
       head: headerish ? [rendered[0]] : [],
       domRows: meaningfulRows,
+      domRowCount,
       rows: headerish ? rendered.slice(1) : rendered,
       ...(hiddenRows.length ? { hiddenRows } : {}),
     };
@@ -987,7 +1024,7 @@
       items.push({ checked: null, blocks });
     }
     if (items.length < 2) return null;
-    return { type: 'list', ordered, start: 1, items, ...(domItems ? { domItems } : {}) };
+    return { type: 'list', ordered, start: 1, items, domItems, domItemCount: kids.length };
   }
 
   /* "Customer: ACME" rows built out of two divs. */
@@ -1295,23 +1332,26 @@
         if (b.type === 'table') {
           stats.tables++;
           const emitted = (b.rows ? b.rows.length : 0) + (b.head ? b.head.length : 0);
-          const dom = Math.max(emitted, b.domRows || 0);
+          // domRowCount comes from the DOM itself (table.rows / [role=row]),
+          // never from the extraction path — otherwise the check would inherit
+          // the very bug it is meant to catch.
+          const dom = Math.max(emitted, b.domRowCount || 0, b.domRows || 0);
           stats.tableRows += dom;
           stats.tableRowsCaptured += emitted;
-          if (b.domRows && emitted < b.domRows) {
-            const missing = b.domRows - emitted;
+          if (dom > emitted) {
+            const missing = dom - emitted;
             const where = locate(b);
-            warnings.push(`${missing} of ${b.domRows} row(s) missing from a table${where ? ' ' + where : ''}`);
+            warnings.push(`${missing} of ${dom} row(s) in the DOM are not in the capture${where ? ', table ' + where : ''}`);
           }
         }
         if (b.type === 'list') {
           stats.lists++;
           const emitted = b.items.length;
-          const dom = Math.max(emitted, b.domItems || 0);
+          const dom = Math.max(emitted, b.domItemCount || 0, b.domItems || 0);
           stats.listItems += dom;
           stats.listItemsCaptured += emitted;
-          if (b.domItems && emitted < b.domItems) {
-            warnings.push(`${b.domItems - emitted} of ${b.domItems} item(s) missing from a list`);
+          if (dom > emitted) {
+            warnings.push(`${dom - emitted} of ${dom} list item(s) in the DOM are not in the capture`);
           }
         }
         if (b.blocks) walk(b.blocks);
@@ -1319,6 +1359,19 @@
       }
     };
     walk(blocks);
+
+    // Tables in the DOM that never produced a table block at all. Not
+    // applicable to a selection: the scope element is the whole body there,
+    // while the capture is only the selected range.
+    try {
+      if (pick.kind === 'selection') throw 0;
+      const scopeTables = pick.el.querySelectorAll('table').length +
+        pick.el.querySelectorAll('[role="table"], [role="grid"]').length;
+      if (scopeTables > stats.tables) {
+        stats.tablesInDom = scopeTables;
+        warnings.push(`${scopeTables - stats.tables} table(s) in the DOM were not captured as tables`);
+      }
+    } catch (e) { /* ignore */ }
 
     const skippedHidden = ctx.diag.hiddenRowsSkipped + ctx.diag.hiddenItemsSkipped;
     if (skippedHidden) {

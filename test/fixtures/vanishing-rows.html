@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rows that vanish</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; }
+  table { border-collapse: collapse; }
+  th, td { border: 1px solid #ccc; padding: 3px 8px; }
+  .collapsed { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Shipment 9912</h1>
+
+  <!-- A: "parent/summary" row uses <th scope="row"> — must stay a data row -->
+  <table id="parent-child">
+    <thead><tr><th>Scope</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Parent total</th><td>1,240.00</td></tr>
+      <tr><td>Child A</td><td>800.00</td></tr>
+      <tr><td>Child B</td><td>440.00</td></tr>
+    </tbody>
+  </table>
+
+  <!-- B: newest row is an editable row: values live in form controls -->
+  <table id="editable">
+    <thead><tr><th>Status</th><th>Updated</th></tr></thead>
+    <tbody>
+      <tr><td>In transit</td><td>2026-10-30</td></tr>
+      <tr>
+        <td><input value="Delivered" readonly></td>
+        <td><input value="2026-11-01" readonly></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- C: row whose value only exists in a select's selected option -->
+  <table id="select-row">
+    <tbody>
+      <tr><th>Stage</th><th>Owner</th></tr>
+      <tr><td>Packed</td><td>warehouse</td></tr>
+      <tr>
+        <td><select><option>Packed</option><option selected>Dispatched</option></select></td>
+        <td>logistics</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- D: newest row inside a collapsed section, editable -->
+  <div class="collapsed" data-label="latest-scan">
+    <table id="collapsed-editable">
+      <tbody>
+        <tr><th>Scan</th><th>When</th></tr>
+        <tr>
+          <td><input value="Out for delivery"></td>
+          <td><input value="2026-11-01 06:12"></td>
+        </tr>
+        <tr><td>Arrived at hub</td><td>2026-10-31 22:40</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- E: ordered list whose first item is a form control / button only -->
+  <p>Priority order</p>
+  <ol id="priority">
+    <li><input type="checkbox" checked> <span>Escalate to carrier</span></li>
+    <li>Notify customer</li>
+  </ol>
+
+  <!-- F: a row added by script ~250ms after load (dynamically rendered) -->
+  <table id="late">
+    <thead><tr><th>Event</th><th>Time</th></tr></thead>
+    <tbody><tr><td>Created</td><td>09:00</td></tr></tbody>
+  </table>
+</main>
+<script>
+  setTimeout(() => {
+    const t = document.querySelector('#late tbody');
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>Latest event</td><td>09:59</td>';
+    t.prepend(tr);      // newest entry on top, exactly the reported pattern
+  }, 250);
+</script>
+</body>
+</html>

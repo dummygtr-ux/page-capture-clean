@@ -272,6 +272,45 @@ const synthetic = await page.evaluate(() => PageCapture.toMarkdown({
 }, { profile: 'lean' }));
 check('synthetic table warning is rendered', synthetic.includes('3 of 14 row(s) missing from a table "SKU | Qty"'), synthetic.slice(0, 200));
 
+// ------------------------------- reopened bug: rows still vanishing (v1.2.1)
+/* Reopened report: newest/topmost row dropped, list item 1 blank, parent row
+ * missing, and the previous completeness check reported "complete" anyway
+ * because it counted with the same filters that dropped the rows. */
+const vrUrl = pathToFileURL(resolve(HERE, 'fixtures/vanishing-rows.html')).href;
+await load(vrUrl);
+await page.waitForTimeout(600);           // let the script-inserted row land
+const vr = await run('content');
+writeFileSync(resolve(OUT, 'vanishing-rows.md'), vr.md);
+console.log('\nvanishing rows:\n' + vr.md);
+
+check('parent/summary row with <th scope=row> stays a data row', vr.md.includes('| Parent total | 1,240.00 |'));
+check('editable newest row captured from input values', vr.md.includes('| Delivered | 2026-11-01 |'),
+  (vr.md.match(/\| In transit.*\n.*\n?/g) || [''])[0]);
+check('select value captured from the selected option', vr.md.includes('| Dispatched | logistics |'));
+check('collapsed section: the newest editable row is captured',
+  /latest-scan[\s\S]{0,160}Out for delivery[\s\S]{0,120}2026-11-01 06:12/.test(vr.md));
+check('dynamically inserted row is captured', vr.md.includes('| Latest event | 09:59 |'));
+check('list item 1 with a checkbox is not blank', vr.md.includes('1. Escalate to carrier') && vr.md.includes('2. Notify customer'));
+
+const vdiag = vr.json.diagnostics;
+check('this page now validates as complete', vdiag.complete === true, JSON.stringify(vdiag.warnings));
+check('row counts reconcile against the DOM', vdiag.stats.tableRows === vdiag.stats.tableRowsCaptured,
+  `${vdiag.stats.tableRows} vs ${vdiag.stats.tableRowsCaptured}`);
+
+/* The validator must not share the extractor's blind spot: an unreachable row
+ * (no text, no control value) has to be reported, not silently accepted. */
+const sabotaged = await page.evaluate(() => {
+  const t = document.createElement('table');
+  t.innerHTML = '<thead><tr><th>A</th><th>B</th></tr></thead>' +
+    '<tbody><tr><td>x</td><td>y</td></tr><tr><td></td><td></td></tr></tbody>';
+  document.querySelector('main').appendChild(t);
+  const d = PageCapture.capture({ scope: 'content' });
+  return { complete: d.diagnostics.complete, warnings: d.diagnostics.warnings, md: PageCapture.toMarkdown(d, { profile: 'llm' }) };
+});
+check('independent check catches a row the extractor cannot read', sabotaged.complete === false &&
+  /1 of 3 row\(s\) in the DOM are not in the capture/.test(sabotaged.warnings.join(' ')), JSON.stringify(sabotaged.warnings));
+check('and the warning reaches the output', sabotaged.md.includes('Possible incomplete extraction'));
+
 // ---------------------------------------------------------------- selection
 await page.goto(fixture);
 await page.addScriptTag({ content: extractorSource });
