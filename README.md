@@ -84,8 +84,26 @@ True one-click would mean the [Edge Add-ons store](https://partner.microsoft.com
 `ExtensionSettings` force-install policy — both are possible from this repo later.
 
 ### What you get
-- Toolbar icon with a popup: preview, char/token count, format + scope + hidden-content switches, copy, save.
-- Hotkeys `Ctrl+Shift+Y` (page) and `Ctrl+Shift+U` (selection).
+
+Click the pinned icon and you get a small menu — the same gesture as any other extension:
+
+```
+┌──────────────────────────────────┐
+│  Copy page                       │  ← copies immediately, shows a toast on the page
+│  Markdown · lean · main content  │      and closes the menu      Ctrl+Shift+Y
+├──────────────────────────────────┤
+│  Change shortcut…              › │  ← opens the browser's shortcut settings
+├──────────────────────────────────┤
+│  Preview & format…             ▾ │  ← format / scope / hidden switches + preview
+└──────────────────────────────────┘
+```
+
+- **Copy page** uses whatever format/scope you last chose and closes the menu; `Enter` does the same.
+- **Change shortcut…** deep-links to `chrome://extensions/shortcuts` (`edge://` on Edge,
+  `about:addons` on Firefox) — browsers do not let an extension rebind its own hotkey by API.
+- **Preview & format…** is collapsed by default and only captures when opened, so the menu
+  stays instant. It shows the char/token count, which scope won, and lets you save a file.
+- Hotkeys: `Ctrl+Shift+Y` (page), `Ctrl+Shift+U` (selection).
 - Right-click menu: Markdown, JSON structure, copy-with-formatting.
 
 ## What it does with a page

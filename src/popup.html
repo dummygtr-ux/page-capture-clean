@@ -8,58 +8,83 @@
 </head>
 <body>
 <header>
-  <div class="title">
-    <strong>Capture page</strong>
-    <span id="page-domain" class="muted">…</span>
-  </div>
-  <button id="open-shortcuts" class="ghost" title="Change the keyboard shortcut">⌨︎</button>
+  <strong>Page Capture</strong>
+  <span id="page-domain" class="muted">…</span>
 </header>
 
-<div class="controls">
-  <label>
-    <span>Format</span>
-    <select id="format">
-      <option value="md-lean">Markdown (lean — fewest tokens)</option>
-      <option value="md-llm">Markdown (with link/image URLs)</option>
-      <option value="md-doc">Markdown (with front matter)</option>
-      <option value="json">JSON structure</option>
-      <option value="text">Plain text</option>
-      <option value="html">Clean HTML</option>
-      <option value="styled">Styled HTML (keeps visual formatting)</option>
-      <option value="report">Structure report (tuning)</option>
-    </select>
-  </label>
-  <label>
-    <span>Scope</span>
-    <select id="scope">
-      <option value="content">Main content</option>
-      <option value="page">Whole page</option>
-      <option value="selection">Selection</option>
-    </select>
-  </label>
-  <label class="wide">
-    <span>Hidden content in the DOM</span>
-    <select id="include-hidden">
-      <option value="mark">Include and label it (recommended)</option>
-      <option value="off">Ignore it</option>
-      <option value="all">Include everything (also aria-hidden)</option>
-    </select>
-  </label>
-</div>
+<ul class="menu" role="menu">
+  <li role="none">
+    <button id="copy" class="item primary" role="menuitem">
+      <span class="item-main">
+        <span class="item-title">Copy page</span>
+        <span class="item-sub" id="copy-sub">…</span>
+      </span>
+      <kbd id="copy-key" class="key">…</kbd>
+    </button>
+  </li>
+  <li role="none">
+    <button id="shortcut" class="item" role="menuitem">
+      <span class="item-main">
+        <span class="item-title">Change shortcut…</span>
+        <span class="item-sub" id="shortcut-sub">Keyboard shortcut settings</span>
+      </span>
+      <span class="chev">›</span>
+    </button>
+  </li>
+  <li role="none">
+    <button id="more-toggle" class="item" role="menuitem" aria-expanded="false" aria-controls="more">
+      <span class="item-main">
+        <span class="item-title">Preview &amp; format…</span>
+      </span>
+      <span class="chev" id="chev">▾</span>
+    </button>
+  </li>
+</ul>
 
-<section class="preview-wrap">
+<div id="status" class="status" role="status"></div>
+
+<section id="more" class="more hidden">
+  <div class="controls">
+    <label>
+      <span>Format</span>
+      <select id="format">
+        <option value="md-lean">Markdown · lean (fewest tokens)</option>
+        <option value="md-llm">Markdown · with URLs</option>
+        <option value="md-doc">Markdown · front matter</option>
+        <option value="json">JSON structure</option>
+        <option value="text">Plain text</option>
+        <option value="html">Clean HTML</option>
+        <option value="styled">Styled HTML</option>
+        <option value="report">Structure report</option>
+      </select>
+    </label>
+    <label>
+      <span>Scope</span>
+      <select id="scope">
+        <option value="content">Main content</option>
+        <option value="page">Whole page</option>
+        <option value="selection">Selection</option>
+      </select>
+    </label>
+    <label class="wide">
+      <span>Hidden content in the DOM</span>
+      <select id="include-hidden">
+        <option value="mark">Include and label it</option>
+        <option value="off">Ignore it</option>
+        <option value="all">Include everything</option>
+      </select>
+    </label>
+  </div>
   <div class="preview-head">
     <span id="stats" class="muted">capturing…</span>
     <span id="scope-note" class="pill hidden"></span>
   </div>
   <textarea id="preview" readonly spellcheck="false" aria-label="Captured content preview"></textarea>
+  <div class="more-footer">
+    <button id="download">Save file</button>
+    <button id="copy-here" class="ghost">Copy without closing</button>
+  </div>
 </section>
-
-<footer>
-  <button id="copy" class="primary">Copy</button>
-  <button id="download">Save file</button>
-  <span id="status" class="muted"></span>
-</footer>
 
 <script src="popup.js"></script>
 </body>
