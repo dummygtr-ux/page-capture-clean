@@ -80,6 +80,17 @@
     return !!hiddenReason(el, win);
   }
 
+  /* A row is rarely hidden itself; its wrapper, rowgroup or panel is. */
+  function hiddenReasonDeep(el, ctx) {
+    let n = el, hops = 0;
+    while (n && n.nodeType === 1 && hops++ < 40) {
+      const r = hiddenReason(n, ctx.win);
+      if (r) return r;
+      n = n.parentElement;
+    }
+    return null;
+  }
+
   function isIcon(el) {
     const cls = typeof el.className === 'string' ? el.className : '';
     if (!/aui-icon|(^|[-_\s])(icon|iconfont|emoji|glyph|spinner|skeleton|ripple|badge-dot)([-_\s]|$)/i.test(cls)) return false;
@@ -124,7 +135,7 @@
     ctx.forceVisible = true;
     const inner = [];
     try {
-      walkBlocks(el, inner, ctx, Object.assign({}, opts, { dropBoilerplate: false, includeHidden: 'off' }));
+      walkBlocks(el, inner, ctx, Object.assign({}, opts, { dropBoilerplate: false }));
     } finally {
       ctx.forceVisible = prev;
     }
@@ -604,39 +615,73 @@
     if (out.length) push({ type: 'list', ordered: false, start: 1, items: out, deflist: true });
   }
 
-  function tableFrom(table, ctx) {
+  function tableFrom(table, ctx, opts) {
+    const includeHidden = !opts || opts.includeHidden !== 'off';
+
     const rows = Array.from(table.querySelectorAll('tr')).filter((tr) => {
       let p = tr.parentElement;
       while (p && p !== table) {
-        if (p.tagName === 'TABLE') return false;   // nested table's row
+        if (p.tagName === 'TABLE') return false;          // a nested table's row
         p = p.parentElement;
       }
-      return !skipEl(tr, ctx);
+      return true;
     });
-    const cellsOf = (tr) => Array.from(tr.children)
-      .filter((c) => c.tagName === 'TD' || c.tagName === 'TH')
-      .map((c) => inlineOf(c, ctx));
-    const grid = rows.map(cellsOf).filter((r) => r.length);
-    if (!grid.length) return null;
+    if (!rows.length) return null;
 
-    const first = rows[0];
+    /* Cells must be read even when the row is invisible: a collapsed section
+     * still holds that row's data, which is exactly what this tool is for.
+     * `includeHidden: 'off'` is the one setting that excludes them. */
+    const kept = [];
+    for (const tr of rows) {
+      const reason = hiddenReasonDeep(tr, ctx);
+      if (reason && !includeHidden) continue;
+      const prev = ctx.forceVisible;
+      // Inside a data cell, always read through hidden wrappers: the cell is a
+      // record, and a hidden span inside it is usually the value's own markup.
+      if (reason || includeHidden) ctx.forceVisible = true;
+      let cells;
+      try {
+        cells = Array.from(tr.children)
+          .filter((c) => c.tagName === 'TD' || c.tagName === 'TH')
+          .map((c) => inlineOf(c, ctx));
+      } finally {
+        ctx.forceVisible = prev;
+      }
+      if (!cells.length) continue;
+      kept.push({ tr, cells, hidden: !!reason });
+    }
+    if (!kept.length) return null;
+
+    const cellEmpty = (c) => !c || !c.some((n) => (n.v || '').trim() || n.t !== 'text');
+    // A spacer row is only a spacer if the DOM row is empty too.
+    let kept2 = kept.filter((r) => !r.cells.every(cellEmpty) || (r.tr.textContent || '').trim().length > 0);
+    if (!kept2.length) kept2 = kept;
+
+    // Drop columns that are empty in every row (infobox spacers).
+    const width0 = Math.max(1, ...kept2.map((r) => r.cells.length));
+    const keepCol = [];
+    for (let i = 0; i < width0; i++) keepCol.push(kept2.some((r) => !cellEmpty(r.cells[i])));
+    let finalRows = kept2
+      .map((r) => ({ ...r, cells: r.cells.filter((_, i) => keepCol[i]) }))
+      .filter((r) => r.cells.length);
+    if (!finalRows.length) finalRows = kept2;
+
+    const first = finalRows[0].tr;
     const firstCells = Array.from(first.children).filter((c) => c.tagName === 'TD' || c.tagName === 'TH');
     const isHead = firstCells.some((c) => c.tagName === 'TH') || !!first.closest('thead');
-    // Drop rows and columns that carry no content at all (infobox spacers).
-    const cellEmpty = (c) => !c || !c.some((n) => (n.v || '').trim() || n.t !== 'text');
-    let rows2 = grid.filter((r) => !r.every(cellEmpty));
-    if (!rows2.length) rows2 = grid;
-    const width0 = Math.max(1, ...rows2.map((r) => r.length));
-    const keepCol = [];
-    for (let i = 0; i < width0; i++) keepCol.push(rows2.some((r) => !cellEmpty(r[i])));
-    const grid2 = rows2.map((r) => r.filter((_, i) => keepCol[i])).filter((r) => r.length);
-    const grid3 = grid2.length ? grid2 : grid;
-    const width = Math.max(1, ...grid3.map((r) => r.length));
-    const pad = (r) => r.concat(Array.from({ length: Math.max(0, width - r.length) }, () => []));
-    // head is a list of header rows (0 or 1)
-    const head = isHead ? [pad(grid3[0])] : [];
-    const body = isHead ? grid3.slice(1) : grid3;
-    return { type: 'table', head, rows: body.map(pad) };
+    const headCount = isHead ? 1 : 0;
+
+    const width = Math.max(1, ...finalRows.map((r) => r.cells.length));
+    const pad = (cells) => cells.concat(Array.from({ length: Math.max(0, width - cells.length) }, () => []));
+    const rendered = finalRows.map((r) => pad(r.cells));
+    const hiddenRows = finalRows.map((r, i) => (r.hidden ? i - headCount : -1)).filter((i) => i >= 0);
+
+    return {
+      type: 'table',
+      head: isHead ? [rendered[0]] : [],
+      rows: isHead ? rendered.slice(1) : rendered,
+      ...(hiddenRows.length ? { hiddenRows } : {}),
+    };
   }
 
   // ------------------------------------------------------- generic structure
@@ -694,8 +739,9 @@
   }
 
   /* <div role="table"> / display:table — recover the grid. */
-  function divTable(el, ctx) {
+  function divTable(el, ctx, opts) {
     const win = ctx.win;
+    const includeHidden = !opts || opts.includeHidden !== 'off';
     const role = (el.getAttribute('role') || '').toLowerCase();
     const disp = win.getComputedStyle(el).display;
     if (!(role === 'table' || role === 'grid' || disp === 'table' || disp === 'inline-table')) return null;
@@ -711,34 +757,48 @@
     })(el);
     if (!rows.length) return null;
 
-    const cells = rows.map((row) => {
-      const out = [];
-      for (const c of row.children) {
-        const r = (c.getAttribute('role') || '').toLowerCase();
-        const d = win.getComputedStyle(c).display;
-        const isCell = /^(cell|gridcell|columnheader|rowheader)$/.test(r) || d === 'table-cell' ||
-          d === 'grid-cell' || r === '' ;
-        if (isCell) out.push({ el: c, header: r === 'columnheader' || r === 'rowheader' });
+    const kept = [];
+    for (const row of rows) {
+      const reason = hiddenReasonDeep(row, ctx);
+      if (reason && !includeHidden) continue;
+      const prev = ctx.forceVisible;
+      if (reason || includeHidden) ctx.forceVisible = true;
+      const cells = [];
+      try {
+        for (const c of row.children) {
+          const r = (c.getAttribute('role') || '').toLowerCase();
+          const d = win.getComputedStyle(c).display;
+          const isCell = /^(cell|gridcell|columnheader|rowheader)$/.test(r) ||
+            d === 'table-cell' || d === 'grid-cell' || r === '';
+          if (isCell) cells.push({ el: c, header: r === 'columnheader' || r === 'rowheader', inline: inlineOf(c, ctx) });
+        }
+      } finally {
+        ctx.forceVisible = prev;
       }
-      return out;
-    }).filter((r) => r.length);
+      if (cells.length) kept.push({ cells, hidden: !!reason });
+    }
+    if (!kept.length) return null;
 
-    if (!cells.length) return null;
-    const width = Math.max(...cells.map((r) => r.length));
-    if (width < 2) return null;                              // a stack, not a table
-    const pad = (r) => r.concat(Array.from({ length: width - r.length }, () => ({ el: null, header: false })));
-    const rendered = cells.map((r) => pad(r).map((c) => (c.el ? inlineOf(c.el, ctx) : [])));
+    const width = Math.max(...kept.map((r) => r.cells.length));
+    if (width < 2) return null;                            // a stack, not a table
 
-    const firstRow = cells[0];
-    const headerish = firstRow.some((c) => c.header) || firstRow.every((c) => {
+    const pad = (r) => r.concat(Array.from({ length: width - r.length }, () => ({ el: null, inline: [] })));
+    const rendered = kept.map((r) => pad(r.cells).map((c) => (c.el ? c.inline : [])));
+
+    const firstRow = kept[0];
+    const headerish = firstRow.cells.some((c) => c.header) || firstRow.cells.every((c) => {
       if (!c.el) return false;
       const target = c.el.querySelector('b,strong') || c.el;
       return (parseInt(win.getComputedStyle(target).fontWeight, 10) || 400) >= 600;
     });
+    const headCount = headerish ? 1 : 0;
+    const hiddenRows = kept.map((r, i) => (r.hidden ? i - headCount : -1)).filter((i) => i >= 0);
+
     return {
       type: 'table',
       head: headerish ? [rendered[0]] : [],
       rows: headerish ? rendered.slice(1) : rendered,
+      ...(hiddenRows.length ? { hiddenRows } : {}),
     };
   }
 
@@ -819,7 +879,7 @@
     if (opts.inferStructure === false) return null;
     const win = ctx.win;
 
-    const table = divTable(el, ctx);
+    const table = divTable(el, ctx, opts);
     if (table) return table;
 
     const list = divList(el, ctx);
@@ -935,7 +995,7 @@
           dlFrom(el, ctx, opts, push);
           break;
         case 'TABLE': {
-          const t = tableFrom(el, ctx);
+          const t = tableFrom(el, ctx, opts);
           if (t) push(t);
           break;
         }
@@ -1603,7 +1663,17 @@ ${htmlBlocks(doc.blocks)}
     push(Object.entries(counts).map(([k, v]) => `${k} ×${v}`).join(' · '), '');
     push('- label/value pairs detected: ' + pairs + ' (two-child rows where the first is bold or label-ish)');
     push('- headings detected: ' + (counts.heading || 0) + ' (h1–h6 tags, `role=heading`, font-size ratio, or a title-ish class that is bold)');
-    push('- tables detected: ' + (counts.table || 0) + ' (`role=table/grid`, `display:table`, or `<table>`)');
+    const hiddenRowTotal = (function walkHidden(blocks) {
+      let n = 0;
+      for (const b of blocks) {
+        if (b.type === 'table' && b.hiddenRows) n += b.hiddenRows.length;
+        if (b.blocks) n += walkHidden(b.blocks);
+        if (b.items) b.items.forEach((i) => { n += walkHidden(i.blocks); });
+      }
+      return n;
+    })(doc2.blocks);
+    push('- tables detected: ' + (counts.table || 0) + ' (`role=table/grid`, `display:table`, or `<table>`)' +
+      (hiddenRowTotal ? `, of which **${hiddenRowTotal} row(s) came from hidden or collapsed areas** and were included` : ''));
     push('- lists detected: ' + (counts.list || 0) + ' (`role=list`, `display:list-item`, a `::before` bullet, or literal bullet text)');
     push('');
 

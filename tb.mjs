@@ -1,0 +1,11 @@
+import { chromium } from 'playwright-core';
+import { readFileSync } from 'node:fs';
+import { resolveChromium } from '/home/g5ke/Documents/deepseek-harness/default-workspace/page-capture/test/browser-path.mjs';
+const src = readFileSync('src/extractor.js','utf8');
+const b = await chromium.launch({executablePath: resolveChromium()});
+const p = await b.newPage();
+await p.goto('file://' + process.cwd() + '/test/fixtures/tables-hidden.html');
+await p.evaluate(src);
+const md = await p.evaluate(() => PageCapture.toMarkdown(PageCapture.capture({scope:'content'}), {profile:'llm'}));
+console.log(md);
+await b.close();

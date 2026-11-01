@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tables in collapsed sections</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; }
+  .grid { display: table; width: 100%; }
+  .grid .row { display: table-row; }
+  .grid .cell { display: table-cell; border: 1px solid #ccc; padding: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Approval history</h1>
+
+  <!-- 1. visible table, the LAST row is hidden (lazy-rendered newest entry) -->
+  <table id="visible-with-hidden-row">
+    <thead><tr><th>Approver</th><th>Decision</th></tr></thead>
+    <tbody>
+      <tr><td>M. Chen</td><td>Approved</td></tr>
+      <tr style="display:none"><td>D. Park</td><td>Approved (latest)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- 2. a whole table inside a collapsed accordion panel -->
+  <div class="accordion">
+    <div class="acc-body" style="display:none">
+      <table id="table-in-collapsed-panel">
+        <thead><tr><th>Amount</th><th>Date</th></tr></thead>
+        <tbody>
+          <tr><td>100</td><td>2026-10-01</td></tr>
+          <tr><td>250</td><td>2026-10-15</td></tr>
+          <tr><td>75</td><td>2026-11-01</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 3. div-based table, last row hidden -->
+  <div class="grid" role="table">
+    <div class="row" role="row">
+      <div class="cell" role="columnheader">Stage</div>
+      <div class="cell" role="columnheader">Owner</div>
+    </div>
+    <div class="row" role="row">
+      <div class="cell" role="cell">Draft</div>
+      <div class="cell" role="cell">j.smith</div>
+    </div>
+    <div class="row" role="row" style="display:none">
+      <div class="cell" role="cell">Final</div>
+      <div class="cell" role="cell">m.chen</div>
+    </div>
+  </div>
+
+  <!-- 4. visible row whose cell content lives in a hidden wrapper -->
+  <table id="hidden-cell-content">
+    <tbody>
+      <tr><th>Note</th><th>State</th></tr>
+      <tr><td>Standard</td><td>OK</td></tr>
+      <tr><td><div style="display:none">Escalated to legal</div></td><td>Final</td></tr>
+    </tbody>
+  </table>
+
+  <!-- 5. collapsed <details> holding a table -->
+  <details>
+    <summary>Older entries</summary>
+    <table id="in-closed-details">
+      <thead><tr><th>Entry</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>E-1</td><td>10</td></tr>
+        <tr><td>E-2</td><td>20</td></tr>
+      </tbody>
+    </table>
+  </details>
+</main>
+</body>
+</html>

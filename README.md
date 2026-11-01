@@ -111,6 +111,12 @@ Click the pinned icon and you get a small menu — the same gesture as any other
 - Picks the **main content** by scoring candidates (text length, punctuation, paragraph count,
   link density, class/id hints) instead of guessing "the first `<main>`"; falls back to the
   whole page when nothing scores high enough. Scope is shown in the popup.
+- **Table rows are never dropped for being invisible.** A row hidden by `display:none`,
+  `visibility`, `hidden`, `aria-hidden`, or by sitting inside a collapsed panel, an
+  accordion or a closed `<details>` is still a row — it is read and included, and the JSON
+  records which rows came from hidden areas as `hiddenRows`. Only `includeHidden: off`
+  excludes them. Content hidden *inside* a visible cell is read too, since a cell is a data
+  record rather than UI.
 - Drops site chrome: nav, footers, sidebars, cookie banners, share/related blocks, breadcrumbs,
   page metadata, table-of-contents stubs, decorative icons, 1×1 tracking pixels.
 - Maps semantics, not just text:

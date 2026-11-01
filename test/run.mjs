@@ -199,6 +199,30 @@ check('lean is meaningfully smaller', saved >= 5, `only ${saved}%`);
 
 check('div soup: hidden block is a real block in JSON', soup.json.blocks.some((b) => b.type === 'hidden' && b.reason === 'display:none' && b.label === 'analyst-notes'));
 
+// ------------------------------------------- tables in collapsed sections
+/* Bug report: "omits rows from multi row tables, specifically from recent/last
+ * entry in collapsed or expandable sections". A row that is hidden (or whose
+ * markup is hidden) must still be a row. */
+const tblUrl = pathToFileURL(resolve(HERE, 'fixtures/tables-hidden.html')).href;
+await load(tblUrl);
+const tbl = await run('content');
+writeFileSync(resolve(OUT, 'tables-hidden.md'), tbl.md);
+console.log('\ntables in collapsed sections:\n' + tbl.md);
+const tblTables = tbl.json.blocks.filter((b) => b.type === 'table');
+const flat = JSON.stringify(tbl.json);
+
+check('table: hidden last <tr> is included', tbl.md.includes('| D. Park | Approved (latest) |'), tbl.md.slice(0, 200));
+check('table: hidden row recorded in JSON', tblTables.some((x) => (x.hiddenRows || []).includes(1)), JSON.stringify(tblTables.map((x) => x.hiddenRows)));
+check('table: table inside a collapsed panel keeps all 3 rows',
+  /acc-body[\s\S]{0,200}2026-11-01/.test(tbl.md) && (tbl.md.match(/2026-1[01]-\d\d/g) || []).length === 3);
+check('table: div-table hidden row included', tbl.md.includes('| Final | m.chen |'));
+check('table: hidden content inside a visible cell is read', tbl.md.includes('| Escalated to legal | Final |'));
+check('table: closed <details> table intact', tbl.md.includes('| E-1 | 10 |') && tbl.md.includes('| E-2 | 20 |'));
+
+const offTbl = await page.evaluate(() => PageCapture.toMarkdown(
+  PageCapture.capture({ scope: 'content', includeHidden: 'off' }), { profile: 'llm' }));
+check('table: includeHidden=off still excludes hidden rows', !offTbl.includes('D. Park') && !offTbl.includes('Escalated to legal'));
+
 // ---------------------------------------------------------------- selection
 await page.goto(fixture);
 await page.addScriptTag({ content: extractorSource });
