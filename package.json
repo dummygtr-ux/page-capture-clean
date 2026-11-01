@@ -1,0 +1,19 @@
+{
+  "name": "page-capture",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser extension: capture the active page as structure-preserving Markdown / JSON / plain text / styled HTML.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node test/run.mjs",
+    "test:live": "node test/run.mjs --live",
+    "test:e2e": "node test/e2e.mjs",
+    "test:dist": "node scripts/build.mjs && EXT_DIR=dist/chrome node test/e2e.mjs",
+    "shot": "node test/popup-shot.mjs",
+    "test:all": "node test/run.mjs && node test/e2e.mjs && node test/popup-shot.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.56.1"
+  }
+}

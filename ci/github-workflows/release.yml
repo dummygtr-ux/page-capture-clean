@@ -1,0 +1,39 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium and verify before publishing
+        run: |
+          npx playwright-core install --with-deps chromium
+          npm test
+      - run: npm run build
+      - name: Test the artifact we are about to ship
+        run: npm run test:dist
+      - name: Rename assets for stable download URLs
+        run: |
+          cp dist/chrome.zip page-capture-chrome.zip
+          cp dist/firefox.zip page-capture-firefox.zip
+          cp dist/chrome/INSTALL.txt INSTALL.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            page-capture-chrome.zip
+            page-capture-firefox.zip
+            INSTALL.txt
+          generate_release_notes: true

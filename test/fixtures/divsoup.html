@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TCK-1042 — Access request</title>
+<!--
+  Purpose: mimic a proprietary internal app. No semantic tags at all: every
+  piece of data is a <div>. Structure has to be recovered from computed styles
+  and ARIA. Some of the data is in the DOM but not visible on the page
+  (collapsed tab panes, an off-canvas drawer) — that is often the data you
+  actually want when you paste a ticket into an LLM.
+-->
+<style>
+  body { margin: 0; font: 14px/1.4 "Inter", system-ui, sans-serif; color: #111; }
+  #app { display: flex; flex-direction: column; }
+  .topbar { display: flex; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid #ddd; }
+  .layout { display: flex; }
+  .sidebar { width: 180px; border-right: 1px solid #eee; }
+  .nav-item { padding: 6px 10px; }
+  .content { flex: 1; padding: 16px; }
+  .page-title { font-size: 28px; font-weight: 700; margin-bottom: 12px; }
+  .card { border: 1px solid #e5e5e5; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .card-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+  .field-row { display: flex; gap: 8px; padding: 2px 0; }
+  .field-label, .lbl { font-weight: 600; min-width: 110px; }
+  .field-value, .val { flex: 1; }
+  .step { display: list-item; list-style-type: decimal; margin-left: 18px; }
+  .b { display: block; }
+  .b::before { content: "• "; }
+  .tab-pane { padding: 8px; }
+  .muted { color: #666; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <div class="brand">ACME Service Portal</div>
+    <div class="user">j.smith</div>
+  </div>
+
+  <div class="layout">
+    <div class="sidebar">
+      <div class="nav-item">Home</div>
+      <div class="nav-item">My tickets</div>
+      <div class="nav-item">Admin</div>
+    </div>
+
+    <div class="content">
+      <div class="page-title">Ticket TCK-1042 — Access request</div>
+
+      <!-- action chrome + interaction scaffolding: pure token cost -->
+      <div class="toolbar">
+        <button>Assign</button>
+        <button>Resolve</button>
+        <div role="button">⋯</div>
+        <div class="icon-btn" aria-label="Close">×</div>
+        <div onclick="refreshIt()">Refresh</div>
+      </div>
+      <div role="tablist">
+        <div role="tab" aria-selected="true">Details</div>
+        <div role="tab">Notes</div>
+        <div role="tab">History</div>
+      </div>
+      <div class="pagination"><a href="/p/2?utm_source=inbox&amp;utm_campaign=digest">2</a> <a href="/p/3">3</a> <a href="/p/4">4</a></div>
+
+      <div class="card">
+        <div class="card-title">Request details</div>
+        <div class="field-row"><div class="field-label">Requester</div><div class="field-value">Jane Smith (j.smith@acme.example)</div></div>
+        <div class="field-row"><div class="field-label">System</div><div class="field-value">Payments Gateway</div></div>
+        <div class="field-row"><div class="lbl">Priority</div><div class="val">High</div></div>
+        <div class="field-row"><div class="lbl">Due</div><div class="val">2026-11-07</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Approvals</div>
+        <div role="table" class="grid">
+          <div role="row" class="hdr">
+            <div role="columnheader">Approver</div>
+            <div role="columnheader">Decision</div>
+            <div role="columnheader">Date</div>
+          </div>
+          <div role="row"><div role="cell">M. Chen</div><div role="cell">Approved</div><div role="cell">2026-10-30</div></div>
+          <div role="row"><div role="cell">S. Okafor</div><div role="cell">Pending</div><div role="cell">—</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Checklist</div>
+        <div role="list" class="role-list">
+          <div role="listitem"><span class="txt">Verify identity</span></div>
+          <div role="listitem"><span class="txt">Provision account in Payments Gateway</span></div>
+          <div role="listitem"><span class="txt">Notify requester</span></div>
+        </div>
+        <div class="steps">
+          <div class="step">Request received</div>
+          <div class="step">Manager approval</div>
+          <div class="step">Access granted</div>
+        </div>
+        <div class="bullets">
+          <div class="b"><span>Consent form signed</span></div>
+          <div class="b"><span>Security training up to date</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Scope matrix</div>
+        <div class="css-table" style="display:table;width:100%">
+          <div style="display:table-row">
+            <div style="display:table-cell;font-weight:600">Scope</div>
+            <div style="display:table-cell;font-weight:600">Level</div>
+          </div>
+          <div style="display:table-row">
+            <div style="display:table-cell">Payments API</div>
+            <div style="display:table-cell">read-write</div>
+          </div>
+          <div style="display:table-row">
+            <div style="display:table-cell">Refunds console</div>
+            <div style="display:table-cell">read-only</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- data that exists in the DOM but is not on screen -->
+      <div class="tabs">
+        <div class="tab-pane" style="display:none" data-label="analyst-notes">
+          <div class="p">Analyst note: identity confirmed by phone on 2026-10-30; escalation not required.</div>
+        </div>
+        <div class="tab-pane" style="display:none" data-label="audit-history">
+          <div class="p">2026-10-28 ticket created by j.smith. 2026-10-30 approved by M. Chen.</div>
+        </div>
+      </div>
+      <div class="drawer" style="position:absolute;left:-9999px;width:300px">
+        Hidden drawer: legal hold applies until 2027-01-01.
+      </div>
+      <div aria-hidden="true" class="decorative">Decorative duplicate: legal hold applies until 2027-01-01.</div>
+
+      <div class="card">
+        <div class="card-title">Attachments</div>
+        <div class="p"><a href="/files/Consent-Form.pdf?utm_source=email&amp;ref=nav">Consent-Form.pdf</a> — signed copy, and <a href="https://support.acme.example/kb/12345">here</a> is the policy.</div>
+        <div class="p"><img src="/img/flow.png" alt="Approval flow diagram" width="600" height="300"> <img src="/img/pixel.gif" width="1" height="1"> <img src="data:image/png;base64,iVBORw0KGgo=" alt="signature strip"></div>
+        <hr>
+        <div style="color:red;font-weight:700">Styled text that must not leak CSS</div>
+      </div>
+
+      <div class="footer-note muted">Last synced 2026-11-01 09:12</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

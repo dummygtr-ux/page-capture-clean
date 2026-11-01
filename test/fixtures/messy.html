@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fixture: messy page</title>
+<meta property="og:site_name" content="Fixture Site">
+<meta name="author" content="A. Tester">
+<style>
+  body { font-family: Georgia, serif; }
+  h2 { color: rgb(200, 0, 0); }
+  .kv th { background: #eee; border: 1px solid #333; }
+  .kv td { border: 1px solid #333; padding: 2px 6px; }
+  .hidden { display: none; }
+  .fancy { font-weight: 700; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="/">Home</a> <a href="/about">About</a> <a href="/pricing">Pricing</a>
+</nav>
+
+<header role="banner"><h1>Fixture Site</h1></header>
+
+<div class="cookie-banner">We use cookies. <button>Accept</button></div>
+
+<main>
+  <article>
+    <h1>Capturing <em>pages</em> without breaking formatting</h1>
+    <p class="byline">By <a href="/authors/a-tester">A. Tester</a> on <time>2026-11-01</time></p>
+
+    <p>
+      Markdown needs   whitespace collapsed, and
+      a line break that is <strong>explicit</strong> — like<br>
+      this one. Use <code>inline_code()</code> with * asterisks &amp; underscores_like_this.
+    </p>
+
+    <p>Visit <a href="https://example.com/a_(b)" title="A link">the docs</a>, <a href="#anchor">skip to anchor</a>, <a href="javascript:void(0)">do nothing</a>, and <a href="/relative/path">a relative link</a>.</p>
+
+    <p>
+      <img src="/img/diagram.png" alt="A diagram" width="400" height="300">
+      <img src="/img/pixel.gif" alt="" width="1" height="1">
+      <img src="data:image/png;base64,iVBORw0KGgo=" alt="inline data image" width="10" height="10">
+    </p>
+
+    <h2>Lists</h2>
+    <ul>
+      <li>First item with <strong>bold</strong></li>
+      <li>Second item
+        <ul>
+          <li>Nested a</li>
+          <li>Nested b with <a href="https://example.com/n">link</a>
+            <ol start="7">
+              <li>deep seven</li>
+              <li>deep eight</li>
+            </ol>
+          </li>
+        </ul>
+      </li>
+      <li>Third item</li>
+    </ul>
+
+    <ul>
+      <li><input type="checkbox" checked> done thing</li>
+      <li><input type="checkbox"> todo thing</li>
+    </ul>
+
+    <h2>Code</h2>
+    <pre><code class="language-js">function f(a) {
+  const s = `tick ${a}`;
+  return s;
+}</code></pre>
+
+    <pre>plain pre with three backticks:
+```
+inside
+```</pre>
+
+    <h2>A table</h2>
+    <table class="kv">
+      <thead><tr><th>Name</th><th>Value</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td>alpha</td><td>1</td><td>a|b pipe</td></tr>
+        <tr><td>beta</td><td><strong>2</strong></td><td></td></tr>
+      </tbody>
+    </table>
+
+    <blockquote>
+      <p>Quoted <em>text</em> here.</p>
+      <p>Second quoted paragraph.</p>
+    </blockquote>
+
+    <figure>
+      <img src="/img/chart.png" alt="chart">
+      <figcaption>Chart <strong>1</strong>: results</figcaption>
+    </figure>
+
+    <details>
+      <summary>Click to expand</summary>
+      <p>Hidden until opened.</p>
+    </details>
+
+    <dl>
+      <dt>Term one</dt><dd>Definition one.</dd>
+      <dt>Term two</dt><dd>Definition two.</dd>
+    </dl>
+
+    <p class="fancy">styled uppercase text</p>
+    <p>Chem: H<sub>2</sub>O and E=mc<sup>2</sup>, <del>gone</del>, <mark>marked</mark>.</p>
+
+    <div class="hidden">THIS MUST NOT APPEAR (display:none)</div>
+    <div aria-hidden="true">THIS MUST NOT APPEAR (aria-hidden)</div>
+    <script>window.__x = "THIS MUST NOT APPEAR (script)";</script>
+    <div class="aui-message aui-message-warning closeable"><p>This API is deprecated.</p></div>
+    <div class="confluence-information-macro confluence-information-macro-note"><span class="aui-icon">i</span><p>Only works over HTTPS.</p></div>
+    <p>Status: <span class="status-macro aui-lozenge aui-lozenge-success">DONE</span> and <span class="aui-lozenge aui-lozenge-error">FAILED</span></p>
+    <div class="expand-container"><div class="expand-control"><span class="expand-control-text">Show raw JSON</span></div>
+      <div class="expand-content"><pre><code class="language-json">{"a": 1}</code></pre></div></div>
+    <div class="code panel pdl"><div class="codeHeader panelHeader"><b>maven</b></div>
+      <div class="codeContent panelContent"><pre class="syntaxhl">mvn -q verify</pre></div></div>
+    <h2>Table of contents</h2>
+    <div class="panel conf-macro output-block" data-macro-name="panel">
+      <div class="panelHeader"><b>Table of contents</b></div>
+      <div class="panelContent"><ul><li><a href="#lists">Lists</a></li><li><a href="#code">Code</a></li><li><a href="#a-table">A table</a></li></ul></div>
+    </div>
+    <nav class="jump"><a href="#lists">Lists</a> <a href="#code">Code</a> <a href="#a-table">A table</a></nav>
+    <p>Final paragraph.</p>
+  </article>
+</main>
+
+<aside>Sidebar junk</aside>
+<footer>Footer junk</footer>
+</body>
+</html>

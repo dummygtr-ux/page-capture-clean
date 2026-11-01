@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium for the test harness
+        run: npx playwright-core install --with-deps chromium
+      - name: Extractor + formatting tests
+        run: npm test
+      - name: Build both targets
+        run: npm run build
+      - name: Load the built extension in Chromium and drive it
+        run: npm run test:dist
+      - name: Render the popup
+        run: npm run shot
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: page-capture-build
+          path: |
+            dist/*.zip
+            test/out/popup.png
